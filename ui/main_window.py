@@ -28,6 +28,7 @@ from utils.config import (
     save_config,
 )
 from utils.logger import setup_logger
+from utils.paths import FIGURE_DIR, MODEL_DIR, OUTPUTS_DIR
 from utils.icon_generator import get_app_icon, get_dialog_icon, show_message
 from core.adapters import get_adapter_list
 from core.result_semantics import analyze_failure_cycles
@@ -330,7 +331,16 @@ class MainWindow(QMainWindow):
             'cv_step': self.cv_step_spin.value(),
             'discharge_step': self.discharge_step_spin.value(),
         }
-        save_config(cfg)
+        try:
+            save_config(cfg)
+        except OSError as error:
+            self.logger.error(f'配置保存失败：{error}')
+            show_message(
+                self, 'error', '配置保存失败',
+                '无法保存当前配置。请检查 config.json 是否被占用，'
+                '以及项目目录是否具有写入权限。')
+            return False
+        return True
 
     def closeEvent(self, event):
         if not self._request_worker_stop(timeout_ms=5000, closing=True):
@@ -1099,6 +1109,7 @@ class MainWindow(QMainWindow):
         self.worker.log_signal.connect(self.append_log)
         self.worker.error_signal.connect(self.on_error)
         self.worker.result_signal.connect(self.on_result)
+        self.worker.progress_signal.connect(self.on_progress)
         self.worker.finished_signal.connect(self.on_finished)
         self.worker.final_model_signal.connect(self.on_final_model_ready)
         self.worker.start()
@@ -1131,6 +1142,7 @@ class MainWindow(QMainWindow):
         self.worker.log_signal.connect(self.append_log)
         self.worker.error_signal.connect(self.on_error)
         self.worker.result_signal.connect(self.on_result)
+        self.worker.progress_signal.connect(self.on_progress)
         self.worker.finished_signal.connect(self.on_finished)
         self.worker.start()
 
@@ -1169,7 +1181,8 @@ class MainWindow(QMainWindow):
             return
         default_ext = '.pt' if self.current_mode in ('RNN', 'GRU', 'LSTM') else '.joblib'
         filepath, _ = QFileDialog.getSaveFileName(
-            self, '保存模型', f'outputs/model{default_ext}',
+            self, '保存模型',
+            os.fspath(MODEL_DIR / f'model{default_ext}'),
             '模型文件 (*.pt *.pth *.joblib);;所有文件 (*.*)')
         if not filepath:
             return
@@ -1182,7 +1195,7 @@ class MainWindow(QMainWindow):
 
     def load_model(self):
         filepath, _ = QFileDialog.getOpenFileName(
-            self, '加载模型', 'outputs/',
+            self, '加载模型', os.fspath(OUTPUTS_DIR),
             '模型文件 (*.pt *.pth *.joblib);;所有文件 (*.*)')
         if not filepath:
             return
@@ -1329,7 +1342,9 @@ class MainWindow(QMainWindow):
                                          self._eval_threshold_ratio)
 
     def save_chart(self):
-        file_path, _ = QFileDialog.getSaveFileName(self, '保存图表', 'outputs/figures/', 'PNG 图片 (*.png);;JPG 图片 (*.jpg);;PDF 文件 (*.pdf)')
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, '保存图表', os.fspath(FIGURE_DIR),
+            'PNG 图片 (*.png);;JPG 图片 (*.jpg);;PDF 文件 (*.pdf)')
         if not file_path:
             return
         if os.path.exists(file_path):
@@ -1506,6 +1521,44 @@ class MainWindow(QMainWindow):
         if self._help_dialog is None or not self._help_dialog.isVisible():
             self._help_dialog = _HelpDialog(self, self.current_mode)
             self._help_dialog.show()
+
+    def on_progress(self, event):
+        total = max(0, int(event.get('total', 0)))
+        current = max(0, int(event.get('current', 0)))
+        if total > 0:
+            self.progress_bar.setRange(0, total)
+            self.progress_bar.setValue(min(current, total))
+            self.progress_bar.setTextVisible(True)
+        else:
+            self.progress_bar.setRange(0, 0)
+            self.progress_bar.setTextVisible(False)
+
+        phase_name = {
+            'loading': '加载数据',
+            'evaluation': '跨电池评估',
+            'battery': '处理电池',
+            'seed': '多种子评估',
+            'rnn_epoch': '循环模型训练',
+            'rf_trees': '随机森林训练',
+            'xgboost_tree': 'XGBoost 训练',
+            'final_training': '最终模型训练',
+            'prediction': '批量预测',
+            'complete': '运行完成',
+        }.get(event.get('phase'), str(event.get('phase', '运行中')))
+        parts = [phase_name]
+        if event.get('battery'):
+            parts.append(str(event['battery']))
+        if event.get('seed') is not None:
+            parts.append(f'seed={event["seed"]}')
+        if event.get('epoch') is not None:
+            parts.append(f'epoch={event["epoch"]}')
+        if total > 0:
+            parts.append(f'{current}/{total}')
+        parts.append(f'{float(event.get("elapsed_seconds", 0.0)):.1f}s')
+        message = ' · '.join(parts)
+        self.run_status_label.setText(message)
+        if hasattr(self, 'status_bar'):
+            self.status_bar.showMessage(message)
 
     def on_error(self, msg):
         show_message(self, 'error', '错误', msg)

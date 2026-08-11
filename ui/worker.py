@@ -4,6 +4,7 @@ import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from core.dataload import load_battery_from_paths
+from core.progress import make_progress_event
 from core.train import train
 from utils.config import TrainConfig
 
@@ -13,7 +14,7 @@ class EvalWorker(QThread):
     result_signal = pyqtSignal(object, float)
     error_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
-    progress_signal = pyqtSignal(int, int)
+    progress_signal = pyqtSignal(object)
     final_model_signal = pyqtSignal(object, dict)
 
     def __init__(self, config, imported_paths, parent=None):
@@ -34,7 +35,11 @@ class EvalWorker(QThread):
     def run(self):
         try:
             start_time = time.time()
+            progress_started_at = time.monotonic()
 
+            self.progress_signal.emit(make_progress_event(
+                'loading', started_at=progress_started_at,
+                current=0, total=1))
             self.log_signal.emit('开始加载数据...')
             self.battery_dict, self.battery_list = load_battery_from_paths(
                 self.imported_paths,
@@ -60,6 +65,10 @@ class EvalWorker(QThread):
 
             self.log_signal.emit('────────────────────────────────────────')
             self.log_signal.emit('开始训练评估...')
+            self.progress_signal.emit(make_progress_event(
+                'evaluation', started_at=progress_started_at,
+                seed=self.config.seed,
+                current=0, total=len(self.battery_list)))
             self.log_signal.emit(
                 f"<span style='color:#FFD54F; font-weight:bold;'>"
                 f'留一法验证：共 {len(self.battery_list)} 个电池，每次留 1 个作测试、其余训练，'
@@ -72,7 +81,8 @@ class EvalWorker(QThread):
                 battery_dict=self.battery_dict,
                 battery_list=self.battery_list,
                 stop_flag=self.stop_requested,
-                log_callback=self.log_signal.emit
+                log_callback=self.log_signal.emit,
+                progress_callback=self.progress_signal.emit,
             )
 
             if self._stop_requested:
@@ -82,6 +92,9 @@ class EvalWorker(QThread):
 
             self.log_signal.emit('────────────────────────────────────────')
             self.log_signal.emit('正在基于全部数据训练最终模型...')
+            self.progress_signal.emit(make_progress_event(
+                'final_training', started_at=progress_started_at,
+                seed=self.config.seed, current=0, total=1))
             try:
                 from core.model_persistence import train_model_on_all_data
                 final_model, final_metadata = train_model_on_all_data(
@@ -158,6 +171,9 @@ class EvalWorker(QThread):
             else:
                 time_str = f'{seconds:.1f}秒'
             self.log_signal.emit(f'训练总耗时：{time_str}')
+            self.progress_signal.emit(make_progress_event(
+                'complete', started_at=progress_started_at,
+                current=1, total=1))
             self.result_signal.emit(results, elapsed)
             self.finished_signal.emit()
         except Exception as e:

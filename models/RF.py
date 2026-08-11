@@ -1,15 +1,19 @@
 import numpy as np
+import time
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error
 from math import sqrt
 from core.cancellation import check_cancelled
+from core.progress import make_progress_event
 
 
 def train_rf(train_x, train_y, val_x, val_y, n_estimators=100,
              max_depth=10, min_samples_leaf=1, max_features=1.0,
              patience=20, seed=2,
-             log_callback=None, name='', stop_flag=None):
+             log_callback=None, name='', stop_flag=None,
+             progress_callback=None):
     check_cancelled(stop_flag)
+    progress_started_at = time.monotonic()
     batch_size = max(1, min(10, n_estimators // 10))
     best_score = float('inf')
     best_n_trees = n_estimators
@@ -46,6 +50,17 @@ def train_rf(train_x, train_y, val_x, val_y, n_estimators=100,
             counter += 1
 
         total_trees += batch_size
+
+        if progress_callback:
+            progress_callback(make_progress_event(
+                'rf_trees',
+                started_at=progress_started_at,
+                battery=name,
+                seed=seed,
+                epoch=None,
+                current=min(total_trees, n_estimators),
+                total=n_estimators,
+            ))
 
         if log_callback:
             log_callback(f'[{name}] 树数={total_trees}/{n_estimators}，rmse={rmse:.4f}')

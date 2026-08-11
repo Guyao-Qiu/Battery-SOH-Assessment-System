@@ -5,6 +5,7 @@ import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from core.prediction import predict_capacity_batch
+from core.progress import make_progress_event
 from core.train import evaluate_prediction_protocols
 
 
@@ -84,6 +85,7 @@ class PredictWorker(QThread):
     result_signal = pyqtSignal(object, float)
     error_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
+    progress_signal = pyqtSignal(object)
 
     def __init__(self, model, metadata, imported_paths, config, parent=None):
         super().__init__(parent)
@@ -105,8 +107,12 @@ class PredictWorker(QThread):
     def run(self):
         try:
             start_time = time.time()
+            progress_started_at = time.monotonic()
 
             from core.dataload import load_battery_from_paths
+            self.progress_signal.emit(make_progress_event(
+                'loading', started_at=progress_started_at,
+                current=0, total=1))
             self.log_signal.emit('开始加载数据...')
             self.battery_dict, self.battery_list = load_battery_from_paths(
                 self.imported_paths,
@@ -132,7 +138,7 @@ class PredictWorker(QThread):
 
             results = {}
 
-            for name in self.battery_list:
+            for index, name in enumerate(self.battery_list):
                 if self._stop_requested:
                     break
                 if name not in self.battery_dict:
@@ -144,6 +150,13 @@ class PredictWorker(QThread):
 
                 self.log_signal.emit(
                     f'[{name}] 预测中，测试样本 {len(capacity) - window_size}...')
+                self.progress_signal.emit(make_progress_event(
+                    'prediction',
+                    started_at=progress_started_at,
+                    battery=name,
+                    current=index + 1,
+                    total=len(self.battery_list),
+                ))
 
                 try:
                     prediction, detail = evaluate_loaded_sequence(
@@ -204,6 +217,9 @@ class PredictWorker(QThread):
                         f'{_format_metric(summaries[self.config.metric])}')
 
             elapsed = time.time() - start_time
+            self.progress_signal.emit(make_progress_event(
+                'complete', started_at=progress_started_at,
+                current=1, total=1))
             self.result_signal.emit(results, elapsed)
             self.finished_signal.emit()
         except Exception as e:

@@ -1,9 +1,11 @@
 import logging
 import os
 from logging.handlers import RotatingFileHandler
+from utils.paths import LOG_DIR
 
 
-def setup_logger(log_dir='outputs'):
+def setup_logger(log_dir=None):
+    log_dir = os.fspath(LOG_DIR if log_dir is None else log_dir)
     os.makedirs(log_dir, exist_ok=True)
     logger = logging.getLogger('battery_soh')
     logger.setLevel(logging.INFO)

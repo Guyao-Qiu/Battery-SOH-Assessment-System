@@ -1,4 +1,5 @@
 import numpy as np
+import time
 import torch
 import torch.nn as nn
 
@@ -12,6 +13,7 @@ from core.preprocess import (
 from core.prediction import predict_capacity_batch
 from core.evaluate import calc_all_metrics, confidence_interval
 from core.cancellation import check_cancelled
+from core.progress import make_progress_event
 from utils.config import setup_seed
 
 
@@ -41,7 +43,8 @@ def evaluate_prediction_protocols(sequence, window_size, predict_batch,
     }
 
 
-def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=None, seed=None):
+def _train_one_battery(config, battery_dict, name, stop_flag=None,
+                       log_callback=None, seed=None, progress_callback=None):
     """训练单个电池（留一法），返回 (pred_list, metrics_dict, detail_dict)
 
     pred_list: 预测容量序列（含 train_data 前缀），用于绘图
@@ -55,6 +58,7 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=
     device = config.device
     rated_capacity = config.rated_capacity
     threshold_ratio = config.threshold_ratio
+    progress_started_at = time.monotonic()
 
     if seed is not None:
         setup_seed(seed)
@@ -106,6 +110,7 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=
                 log_callback=log_callback,
                 name=name,
                 stop_flag=stop_flag,
+                progress_callback=progress_callback,
             )
         else:
             model = train_rf(
@@ -119,6 +124,7 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=
                 log_callback=log_callback,
                 name=name,
                 stop_flag=stop_flag,
+                progress_callback=progress_callback,
             )
         check_cancelled(stop_flag)
         protocols = evaluate_prediction_protocols(
@@ -172,6 +178,17 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
+        if progress_callback:
+            progress_callback(make_progress_event(
+                'rnn_epoch',
+                started_at=progress_started_at,
+                battery=name,
+                seed=seed,
+                epoch=epoch + 1,
+                current=epoch + 1,
+                total=epochs,
+            ))
 
         check_cancelled(stop_flag)
 
@@ -232,13 +249,15 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=
     }
 
 
-def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None):
+def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None,
+          progress_callback=None):
     feature_size = config.window_size
     mode = config.mode
     base_seed = config.seed
     n_seeds = max(1, getattr(config, 'n_seeds', 1))
 
     results = {}
+    progress_started_at = time.monotonic()
 
     # 生成种子列表：以 base_seed 为起点，每次 +1
     seeds = [base_seed + i for i in range(n_seeds)]
@@ -261,6 +280,15 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None)
                 log_callback(f'跳过 {name}：循环数不足（需>{feature_size}）')
             continue
 
+        if progress_callback:
+            progress_callback(make_progress_event(
+                'battery',
+                started_at=progress_started_at,
+                battery=name,
+                current=i + 1,
+                total=len(battery_list),
+            ))
+
         # 收集多种子结果
         all_metrics = []  # 每个种子的 metrics dict
         all_predictions = []
@@ -269,12 +297,23 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None)
         for s_idx, sd in enumerate(seeds):
             check_cancelled(stop_flag)
 
+            if progress_callback:
+                progress_callback(make_progress_event(
+                    'seed',
+                    started_at=progress_started_at,
+                    battery=name,
+                    seed=sd,
+                    current=s_idx + 1,
+                    total=len(seeds),
+                ))
+
             if n_seeds > 1 and log_callback:
                 log_callback(f'[{name}] 种子 {s_idx + 1}/{n_seeds} (seed={sd})')
 
             pred_list, metrics, run_detail = _train_one_battery(
                 config, battery_dict, name,
-                stop_flag=stop_flag, log_callback=log_callback, seed=sd)
+                stop_flag=stop_flag, log_callback=log_callback, seed=sd,
+                progress_callback=progress_callback)
 
             if metrics is None:
                 continue

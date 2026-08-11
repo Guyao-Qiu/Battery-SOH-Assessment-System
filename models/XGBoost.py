@@ -1,3 +1,5 @@
+import time
+
 from xgboost import XGBRegressor
 from core.cancellation import check_cancelled, xgboost_stop_callbacks
 
@@ -5,8 +7,10 @@ from core.cancellation import check_cancelled, xgboost_stop_callbacks
 def train_xgboost(train_x, train_y, val_x, val_y, n_estimators=100,
                   learning_rate=0.1, max_depth=6, subsample=1.0,
                   colsample_bytree=1.0, patience=20, seed=2,
-                  log_callback=None, name='', stop_flag=None):
+                  log_callback=None, name='', stop_flag=None,
+                  progress_callback=None):
     check_cancelled(stop_flag)
+    progress_started_at = time.monotonic()
     options = dict(
         n_estimators=n_estimators,
         learning_rate=learning_rate,
@@ -17,7 +21,14 @@ def train_xgboost(train_x, train_y, val_x, val_y, n_estimators=100,
         random_state=seed,
         verbosity=0,
     )
-    callbacks = xgboost_stop_callbacks(stop_flag)
+    callbacks = xgboost_stop_callbacks(
+        stop_flag,
+        progress_callback,
+        battery=name,
+        seed=seed,
+        total=n_estimators,
+        started_at=progress_started_at,
+    )
     if callbacks is not None:
         options['callbacks'] = callbacks
     model = XGBRegressor(**options)

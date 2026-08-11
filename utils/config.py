@@ -4,9 +4,8 @@ import random
 import numpy as np
 import torch
 from dataclasses import dataclass, asdict, fields
+from utils.paths import CONFIG_FILE
 
-
-CONFIG_FILE = 'config.json'
 
 SUPPORTED_MODELS = ('RNN', 'GRU', 'LSTM', 'XGBoost', 'RF')
 _MODEL_ALIASES = {name.lower(): name for name in SUPPORTED_MODELS}
@@ -114,7 +113,7 @@ class TrainConfig:
 
 
 def load_config():
-    if not os.path.exists(CONFIG_FILE):
+    if not CONFIG_FILE.exists():
         return {}
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -124,11 +123,8 @@ def load_config():
 
 
 def save_config(data):
-    try:
-        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except OSError:
-        pass
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 def setup_seed(seed):
     np.random.seed(seed)

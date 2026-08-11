@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from core.run_snapshot import RunSnapshot
+from utils.paths import REPORT_DIR
 
 
 class ExportCancelled(RuntimeError):
@@ -104,13 +105,14 @@ def _cleanup(paths):
             pass
 
 
-def export_run_report(snapshot, canvas, *, base_directory='outputs/runs',
+def export_run_report(snapshot, canvas, *, base_directory=None,
                       confirm_overwrite=None):
     if not isinstance(snapshot, RunSnapshot):
         raise TypeError('报告导出必须使用 RunSnapshot')
     if not snapshot.results:
         raise ReportExportError('运行快照中没有可导出的评估结果。')
 
+    base_directory = REPORT_DIR if base_directory is None else base_directory
     run_directory = Path(base_directory) / snapshot.run_id
     targets = {
         'report_json': run_directory / 'report.json',
