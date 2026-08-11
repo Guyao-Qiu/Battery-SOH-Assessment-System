@@ -1495,37 +1495,48 @@ class MainWindow(QMainWindow):
             self._set_running_state(False, '准备就绪')
         self.worker = None
 
-    def on_result(self, score_list, prediction_list, detail_list, elapsed):
-        self._last_score = score_list
-        self._last_pred = prediction_list
-        self._last_detail = detail_list
+    def on_result(self, results, elapsed):
+        self._last_results = results
+        self._last_score = [
+            [result['score']] for result in results.values()
+        ]
+        self._last_pred = {
+            name: result['prediction'] for name, result in results.items()
+        }
+        self._last_detail = [
+            result['detail'] for result in results.values()
+        ]
         self._last_elapsed = elapsed
 
-        self.battery_list = self.worker.battery_list
-        self.battery_dict = self.worker.battery_dict
+        self.battery_list = list(results)
+        self.battery_dict = {
+            name: self.worker.battery_dict[name]
+            for name in self.battery_list
+            if name in self.worker.battery_dict
+        }
 
         threshold = self._eval_rated_capacity * self._eval_threshold_ratio
-        for i, item in enumerate(detail_list):
-            if i < len(prediction_list):
-                pred = prediction_list[i]
-                recursive = item.get('recursive_prediction')
-                one_step = item.get('one_step_prediction')
-                if recursive is not None and one_step is not None:
-                    prefix_length = max(0, len(pred) - len(one_step))
-                    pred = list(pred[:prefix_length]) + list(recursive)
-                    item['failure_cycle_protocol'] = 'recursive_future'
-                else:
-                    item['failure_cycle_protocol'] = 'legacy_prediction'
-                failure_cycle = None
-                for j, val in enumerate(pred):
-                    if val < threshold:
-                        failure_cycle = j
-                        break
-                item['failure_cycle'] = failure_cycle
-                item['threshold'] = threshold
+        for name, result in results.items():
+            item = result['detail']
+            pred = result['prediction']
+            recursive = item.get('recursive_prediction')
+            one_step = item.get('one_step_prediction')
+            if recursive is not None and one_step is not None:
+                prefix_length = max(0, len(pred) - len(one_step))
+                pred = list(pred[:prefix_length]) + list(recursive)
+                item['failure_cycle_protocol'] = 'recursive_future'
+            else:
+                item['failure_cycle_protocol'] = 'legacy_prediction'
+            failure_cycle = None
+            for j, val in enumerate(pred):
+                if val < threshold:
+                    failure_cycle = j
+                    break
+            item['failure_cycle'] = failure_cycle
+            item['threshold'] = threshold
 
-        self.update_result_table(detail_list, elapsed)
-        self.canvas.plot_results(self.battery_list, self.battery_dict, prediction_list,
+        self.update_result_table(self._last_detail, elapsed)
+        self.canvas.plot_results(self.battery_list, self.battery_dict, self._last_pred,
                                  self._eval_rated_capacity, self._eval_threshold_ratio)
         self.export_btn.setEnabled(True)
         self._set_running_state(False, f'评估完成，耗时 {elapsed:.2f}s')

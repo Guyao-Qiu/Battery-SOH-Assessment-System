@@ -1225,10 +1225,11 @@ class MplCanvas(FigureCanvas):
         elif legend is not None:
             legend.set_draggable(True)
 
-    def plot_results(self, battery_names, battery_data, prediction_list, rated_capacity, threshold_ratio):
+    def plot_results(self, battery_names, battery_data,
+                     prediction_by_battery, rated_capacity, threshold_ratio):
         self._last_plot_kind = 'results'
         self._last_plot_payload = (
-            battery_names, battery_data, prediction_list,
+            battery_names, battery_data, prediction_by_battery,
             rated_capacity, threshold_ratio)
         self.fig.clear()
         if hasattr(self, '_pick_cid'):
@@ -1246,7 +1247,10 @@ class MplCanvas(FigureCanvas):
         grid_color  = '#C5BBAA'
         self.fig.patch.set_facecolor(bg_color)
 
-        valid_names = [n for n in battery_names if n in battery_data]
+        valid_names = [
+            name for name in battery_names
+            if name in battery_data and name in prediction_by_battery
+        ]
         total = len(valid_names)
         if total == 0:
             self.ax = self.fig.add_subplot(111)
@@ -1267,7 +1271,7 @@ class MplCanvas(FigureCanvas):
             ax.set_facecolor(bg_color)
             battery_name = valid_names[idx]
             test_data = battery_data[battery_name]['capacity'].tolist()
-            predict_data = prediction_list[idx] if idx < len(prediction_list) else []
+            predict_data = prediction_by_battery[battery_name]
             x_test = [t for t in range(len(test_data))]
 
             predict_data = list(predict_data)

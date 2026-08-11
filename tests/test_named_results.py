@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from core.adapters import CALCEAdapter
+from core.preprocess import CapacityScaler
 from core.train import train
 from ui.predict_worker import PredictWorker
 
@@ -101,12 +102,9 @@ class NamedResultContractTests(unittest.TestCase):
         self.assertEqual(results["good"]["detail"]["battery"], "good")
 
     def test_prediction_worker_emits_one_name_keyed_result_object(self):
-        scaler = {
-            "method": "rated",
-            "rated_capacity": 1.1,
-            "scale": 1.1,
-            "offset": 0.0,
-        }
+        scaler = CapacityScaler(
+            method="minmax", rated_capacity=1.1).fit(
+                [0.7, 0.8, 0.9, 1.0, 1.1]).to_dict()
         metadata = {
             "mode": "RF",
             "window_size": 3,

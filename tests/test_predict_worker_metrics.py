@@ -97,8 +97,8 @@ class LoadedModelMetricTests(unittest.TestCase):
                 errors = []
                 logs = []
                 worker.result_signal.connect(
-                    lambda scores, predictions, details, elapsed:
-                    results.append((scores, predictions, details)))
+                    lambda named_results, elapsed:
+                    results.append(named_results))
                 worker.error_signal.connect(errors.append)
                 worker.log_signal.connect(logs.append)
 
@@ -109,13 +109,15 @@ class LoadedModelMetricTests(unittest.TestCase):
 
                 self.assertEqual(errors, [])
                 self.assertEqual(len(results), 1)
-                self.assertEqual(len(results[0][2]), 1)
+                self.assertEqual(list(results[0]), ["cell"])
+                detail = results[0]["cell"]["detail"]
                 if metric == "all":
                     for label in ("RMSE", "MAE", "R²", "Pearson", "RE"):
                         self.assertTrue(any(label in line for line in logs))
                 else:
-                    expected_mean = results[0][2][0][metric]
-                    self.assertAlmostEqual(results[0][0][0][0], expected_mean)
+                    expected_mean = detail[metric]
+                    self.assertAlmostEqual(
+                        results[0]["cell"]["score"], expected_mean)
 
 
 if __name__ == "__main__":

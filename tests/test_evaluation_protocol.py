@@ -98,16 +98,19 @@ class EvaluationIsolationTests(unittest.TestCase):
         with patch.object(
                 train_module, "_train_one_battery",
                 side_effect=fake_train_one):
-            scores, predictions, details = train(
-                config, battery_dict, ["target"])
+            results = train(config, battery_dict, ["target"])
 
-        self.assertAlmostEqual(scores[0][0], 2.0)
-        self.assertAlmostEqual(details[0]["rmse"], 2.0)
-        np.testing.assert_allclose(predictions[0], [140.0 / 3.0, 143.0 / 3.0])
-        self.assertIn("one_step_metrics", details[0])
-        self.assertIn("recursive_metrics", details[0])
-        self.assertEqual(details[0]["rul_protocol"], "recursive_future")
-        self.assertAlmostEqual(details[0]["recursive_metrics"]["re"], 0.2)
+        result = results["target"]
+        self.assertAlmostEqual(result["score"], 2.0)
+        self.assertAlmostEqual(result["detail"]["rmse"], 2.0)
+        np.testing.assert_allclose(
+            result["prediction"], [140.0 / 3.0, 143.0 / 3.0])
+        self.assertIn("one_step_metrics", result["detail"])
+        self.assertIn("recursive_metrics", result["detail"])
+        self.assertEqual(
+            result["detail"]["rul_protocol"], "recursive_future")
+        self.assertAlmostEqual(
+            result["detail"]["recursive_metrics"]["re"], 0.2)
 
     def test_train_checks_capacity_length_not_mapping_field_count(self):
         config = SimpleNamespace(
@@ -122,13 +125,10 @@ class EvaluationIsolationTests(unittest.TestCase):
         with patch.object(
                 train_module, "_train_one_battery",
                 return_value=([1.1, 1.0, 0.9, 0.8], metrics, {})) as fit:
-            scores, predictions, details = train(
-                config, battery_dict, ["target"])
+            results = train(config, battery_dict, ["target"])
 
         fit.assert_called_once()
-        self.assertEqual(len(scores), 1)
-        self.assertEqual(len(predictions), 1)
-        self.assertEqual(len(details), 1)
+        self.assertEqual(list(results), ["target"])
 
 
 class PredictionProtocolTests(unittest.TestCase):
@@ -203,22 +203,28 @@ class PredictionProtocolTests(unittest.TestCase):
             battery_dict={"cell": {"capacity": np.asarray(
                 [1.0, 0.9, 0.88, 0.86], dtype=np.float32)}},
         )
-        detail = [{
+        detail = {
             "battery": "cell",
             "recursive_prediction": [0.85, 0.75],
             "one_step_prediction": [0.88, 0.86],
-        }]
+        }
+        results = {
+            "cell": {
+                "score": 0.1,
+                "prediction": [1.0, 0.9, 0.88, 0.86],
+                "detail": detail,
+            }
+        }
 
         try:
             with patch.object(window, "update_result_table"), \
                     patch.object(window.canvas, "plot_results"), \
                     patch.object(window, "_set_running_state"):
-                window.on_result(
-                    [[0.1]], [[1.0, 0.9, 0.88, 0.86]], detail, 0.1)
+                window.on_result(results, 0.1)
 
-            self.assertEqual(detail[0]["failure_cycle"], 3)
+            self.assertEqual(detail["failure_cycle"], 3)
             self.assertEqual(
-                detail[0]["failure_cycle_protocol"], "recursive_future")
+                detail["failure_cycle_protocol"], "recursive_future")
         finally:
             window.deleteLater()
             app.processEvents()

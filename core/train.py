@@ -236,8 +236,7 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None)
     base_seed = config.seed
     n_seeds = max(1, getattr(config, 'n_seeds', 1))
 
-    score_list, result_list = [], []
-    detail_list = []
+    results = {}
 
     # 生成种子列表：以 base_seed 为起点，每次 +1
     seeds = [base_seed + i for i in range(n_seeds)]
@@ -326,10 +325,7 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None)
         one_step_metrics = mean_protocol_metrics('one_step_metrics')
         recursive_metrics = mean_protocol_metrics('recursive_metrics')
 
-        score_list.append([mean_metrics['rmse']])
-        result_list.append(mean_prediction.tolist())
-
-        detail_list.append({
+        detail = {
             'battery': name,
             'cycles': len(battery_dict[name]['capacity']),
             'model': mode,
@@ -350,7 +346,15 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None)
             'recursive_metrics': recursive_metrics,
             'rul_protocol': 'recursive_future',
             'run_details': run_details,
-        })
+        }
+        selected_metric = getattr(config, 'metric', 'rmse')
+        selected_score = mean_metrics.get(
+            selected_metric, mean_metrics['rmse'])
+        results[name] = {
+            'score': float(selected_score),
+            'prediction': mean_prediction.tolist(),
+            'detail': detail,
+        }
 
         if n_seeds > 1 and log_callback:
             log_callback(
@@ -358,4 +362,4 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None)
                 f'RMSE={ci_info["rmse"]["mean"]:.4f}±{ci_info["rmse"]["std"]:.4f} '
                 f'95%CI=[{ci_info["rmse"]["lower"]:.4f}, {ci_info["rmse"]["upper"]:.4f}]')
 
-    return score_list, result_list, detail_list
+    return results

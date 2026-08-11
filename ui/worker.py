@@ -9,7 +9,7 @@ from utils.config import TrainConfig
 
 class EvalWorker(QThread):
     log_signal = pyqtSignal(str)
-    result_signal = pyqtSignal(list, list, list, float)
+    result_signal = pyqtSignal(object, float)
     error_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
     progress_signal = pyqtSignal(int, int)
@@ -66,7 +66,7 @@ class EvalWorker(QThread):
                 f'</span>'
             )
 
-            score_list, pred_list, detail = train(
+            results = train(
                 config=self.config,
                 battery_dict=self.battery_dict,
                 battery_list=self.battery_list,
@@ -108,10 +108,8 @@ class EvalWorker(QThread):
                 f'各电池 {metric_name} 分数：'
                 f'</span>'
             )
-            for i, name in enumerate(self.battery_list):
-                if i >= len(detail):
-                    break
-                item = detail[i]
+            for name, result in results.items():
+                item = result['detail']
                 ci = item.get('ci', {})
                 n_seeds = item.get('n_seeds', 1)
                 if n_seeds > 1 and 'rmse' in ci:
@@ -120,10 +118,12 @@ class EvalWorker(QThread):
                         f'  {name}：RMSE={c["mean"]:.6f} ± {c["std"]:.6f} '
                         f'95%CI=[{c["lower"]:.6f}, {c["upper"]:.6f}]')
                 else:
-                    score = score_list[i][0] if isinstance(score_list[i], list) else score_list[i]
+                    score = result['score']
                     self.log_signal.emit(f'  {name}：{score:.6f}')
-            if len(score_list) != 0:
-                avg = np.mean(np.array(score_list))
+            if results:
+                avg = np.mean([
+                    result['score'] for result in results.values()
+                ])
                 self.log_signal.emit(f'→ 平均 {metric_name}: {avg:.6f}')
                 hint_map = {
                     'rmse': 'RMSE 为均方根误差（Ah），越小越准，<0.02 优秀、<0.05 良好',
@@ -151,7 +151,7 @@ class EvalWorker(QThread):
             else:
                 time_str = f'{seconds:.1f}秒'
             self.log_signal.emit(f'训练总耗时：{time_str}')
-            self.result_signal.emit(score_list, pred_list, detail, elapsed)
+            self.result_signal.emit(results, elapsed)
             self.finished_signal.emit()
         except Exception as e:
             from core.cancellation import TrainingCancelled

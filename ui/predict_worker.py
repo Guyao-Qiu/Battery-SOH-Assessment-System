@@ -65,7 +65,7 @@ def summarize_selected_metrics(detail_list, metric):
 
 class PredictWorker(QThread):
     log_signal = pyqtSignal(str)
-    result_signal = pyqtSignal(list, list, list, float)
+    result_signal = pyqtSignal(object, float)
     error_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
 
@@ -114,8 +114,7 @@ class PredictWorker(QThread):
             threshold_ratio = self.config.threshold_ratio
             device = self.config.device
 
-            score_list, result_list = [], []
-            detail_list = []
+            results = {}
 
             for name in self.battery_list:
                 if self._stop_requested:
@@ -143,9 +142,11 @@ class PredictWorker(QThread):
                         detail['rmse'] if self.config.metric == 'all'
                         else detail[self.config.metric]
                     )
-                    score_list.append([selected_score])
-                    result_list.append(prediction)
-                    detail_list.append(detail)
+                    results[name] = {
+                        'score': float(selected_score),
+                        'prediction': list(prediction),
+                        'detail': detail,
+                    }
                     self.log_signal.emit(
                         f'[{name}] RMSE={detail["rmse"]:.4f} '
                         f'MAE={detail["mae"]:.4f} R²={detail["r2"]:.4f} '
@@ -155,6 +156,9 @@ class PredictWorker(QThread):
                     self.log_signal.emit(f'[{name}] 预测异常：{e}')
                     continue
 
+            detail_list = [
+                result['detail'] for result in results.values()
+            ]
             summaries = summarize_selected_metrics(
                 detail_list, self.config.metric)
             if self.config.metric == 'all':
@@ -180,7 +184,7 @@ class PredictWorker(QThread):
                         f'{summaries[self.config.metric]:.6f}')
 
             elapsed = time.time() - start_time
-            self.result_signal.emit(score_list, result_list, detail_list, elapsed)
+            self.result_signal.emit(results, elapsed)
             self.finished_signal.emit()
         except Exception as e:
             import traceback

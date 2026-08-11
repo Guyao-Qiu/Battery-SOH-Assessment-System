@@ -261,7 +261,6 @@ class CALCEAdapter(BatteryDataAdapter):
             if not file_list:
                 continue
 
-            battery_list.append(name)
             if log_callback:
                 log_callback(f'加载数据集 {name} ...')
 
@@ -281,6 +280,8 @@ class CALCEAdapter(BatteryDataAdapter):
                         log_callback(f'跳过 {p}，原因：{e}')
 
             if len(valid_path) == 0:
+                if log_callback:
+                    log_callback(f'跳过数据集 {name}：没有可读取的有效文件')
                 continue
 
             idx = np.argsort(dates)
@@ -318,7 +319,14 @@ class CALCEAdapter(BatteryDataAdapter):
                 name, log_callback
             )
             if df_result is not None:
+                if name in battery_dict:
+                    if log_callback:
+                        log_callback(f'跳过数据集 {name}：电池名称重复')
+                    continue
                 battery_dict[name] = df_result
+                battery_list.append(name)
+            elif log_callback:
+                log_callback(f'跳过数据集 {name}：没有可用的放电循环')
 
         return battery_dict, battery_list
 
@@ -377,7 +385,6 @@ class NASAAdapter(BatteryDataAdapter):
             if not file_list:
                 continue
 
-            battery_list.append(name)
             if log_callback:
                 log_callback(f'加载数据集 {name}...')
 
@@ -496,7 +503,14 @@ class NASAAdapter(BatteryDataAdapter):
                 name, log_callback
             )
             if df_result is not None:
+                if name in battery_dict:
+                    if log_callback:
+                        log_callback(f'跳过数据集 {name}：电池名称重复')
+                    continue
                 battery_dict[name] = df_result
+                battery_list.append(name)
+            elif log_callback:
+                log_callback(f'跳过数据集 {name}：没有可用的放电循环')
 
         return battery_dict, battery_list
 
