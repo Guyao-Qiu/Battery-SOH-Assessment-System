@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from abc import ABC, abstractmethod
 
-from .preprocess import drop_outlier
+from .preprocess import filter_capacity_outliers
 from .validation import normalize_column_names, _read_data_file
 
 
@@ -84,6 +84,7 @@ def _extract_capacity_from_tabular(df, voltage_upper, voltage_lower,
     工步序号由参数传入而非硬编码。
     """
     cycles = sorted(list(set(df['Cycle_Index'])))
+    discharge_cycles = []
     discharge_capacities = []
     health_indicator = []
     internal_resistance = []
@@ -94,19 +95,18 @@ def _extract_capacity_from_tabular(df, voltage_upper, voltage_lower,
         df_lim = df[df['Cycle_Index'] == c]
 
         # 充电阶段：恒流 + 恒压
-        df_c = df_lim[(df_lim['Step_Index'] == cc_step) | (df_lim['Step_Index'] == cv_step)]
         df_cc = df_lim[df_lim['Step_Index'] == cc_step]
         df_cv = df_lim[df_lim['Step_Index'] == cv_step]
 
         if len(df_cc) != 0:
-            CCCT.append(np.max(df_cc['Test_Time(s)']) - np.min(df_cc['Test_Time(s)']))
+            ccct = np.max(df_cc['Test_Time(s)']) - np.min(df_cc['Test_Time(s)'])
         else:
-            CCCT.append(0)
+            ccct = 0
 
         if len(df_cv) != 0:
-            CVCT.append(np.max(df_cv['Test_Time(s)']) - np.min(df_cv['Test_Time(s)']))
+            cvct = np.max(df_cv['Test_Time(s)']) - np.min(df_cv['Test_Time(s)'])
         else:
-            CVCT.append(0)
+            cvct = 0
 
         # 放电阶段
         df_d = df_lim[df_lim['Step_Index'] == discharge_step]
@@ -121,7 +121,10 @@ def _extract_capacity_from_tabular(df, voltage_upper, voltage_lower,
             instant_cap = time_diff * d_c_arr / 3600
             if len(instant_cap) == 0:
                 continue
+            discharge_cycles.append(c)
             discharge_capacities.append(-1 * np.sum(instant_cap))
+            CCCT.append(ccct)
+            CVCT.append(cvct)
 
             cum_cap = np.cumsum(instant_cap)
             dec = np.abs(np.array(d_v) - voltage_upper)[1:]
@@ -138,45 +141,73 @@ def _extract_capacity_from_tabular(df, voltage_upper, voltage_lower,
             else:
                 internal_resistance.append(np.nan)
 
-    return discharge_capacities, health_indicator, internal_resistance, CCCT, CVCT
+    return (discharge_cycles, discharge_capacities, health_indicator,
+            internal_resistance, CCCT, CVCT)
 
 
-def _build_battery_dataframe(discharge_capacities, health_indicator,
+def _build_battery_dataframe(cycle_indices, discharge_capacities, health_indicator,
                              internal_resistance, CCCT, CVCT,
-                             name, log_callback):
+                             name, log_callback, clean_outliers=True,
+                             protect_knees=True):
     """将提取的数组组装为标准 DataFrame，并执行异常值剔除。"""
     count = len(discharge_capacities)
     if count == 0:
         return None
 
     discharge_capacities = np.array(discharge_capacities)
-    health_indicator = np.array(health_indicator)
-    internal_resistance = np.array(internal_resistance)
-    CCCT = np.array(CCCT[:count])
-    CVCT = np.array(CVCT[:count])
+    cycle_indices = np.asarray(cycle_indices)
 
-    idx = drop_outlier(discharge_capacities, count, 40)
-    if idx.shape[0] == 0:
-        idx = np.arange(count)
-        if log_callback:
-            log_callback(f'… {name} 异常值检测无有效结果，回退使用全量数据')
+    def aligned(values):
+        result = np.full(count, np.nan, dtype=float)
+        values = np.asarray(values).reshape(-1)
+        available = min(count, len(values))
+        if available:
+            result[:available] = values[:available]
+        return result
+
+    if len(cycle_indices) != count:
+        raise ValueError('原始循环编号与有效放电容量数量不一致')
+    health_indicator = aligned(health_indicator)
+    internal_resistance = aligned(internal_resistance)
+    CCCT = aligned(CCCT)
+    CVCT = aligned(CVCT)
+
+    filter_result = filter_capacity_outliers(
+        discharge_capacities, bins=40, enabled=clean_outliers,
+        protect_knees=protect_knees)
+    idx = filter_result.indices
 
     if log_callback:
         log_callback(
             '数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，'
             '窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。'
-            '该方法在保留容量退化趋势的前提下自动识别离群循环。'
+            '边界点和稳定窗口保留，持续退化膝点受到保护。'
         )
+        log_callback(
+            f'{name} 异常值审计：输入 {count}，保留 {len(idx)}，'
+            f'剔除 {filter_result.removed_count}，'
+            f'保护膝点 {len(filter_result.protected_indices)}。')
         log_callback('─' * 40)
 
     df_result = pd.DataFrame({
-        'cycle': np.linspace(1, idx.shape[0], idx.shape[0]),
+        'cycle': cycle_indices[idx],
         'capacity': discharge_capacities[idx],
-        'SoH': health_indicator[idx] if len(health_indicator) >= idx.shape[0] else np.full(idx.shape[0], np.nan),
-        'resistance': internal_resistance[idx] if len(internal_resistance) >= idx.shape[0] else np.full(idx.shape[0], np.nan),
-        'CCCT': CCCT[idx] if len(CCCT) >= idx.shape[0] else np.full(idx.shape[0], np.nan),
-        'CVCT': CVCT[idx] if len(CVCT) >= idx.shape[0] else np.full(idx.shape[0], np.nan)
+        'SoH': health_indicator[idx],
+        'resistance': internal_resistance[idx],
+        'CCCT': CCCT[idx],
+        'CVCT': CVCT[idx],
     })
+    df_result.attrs['outlier_audit'] = {
+        'enabled': bool(clean_outliers),
+        'protect_knees': bool(protect_knees),
+        'input_count': count,
+        'kept_count': int(len(idx)),
+        'removed_count': filter_result.removed_count,
+        'mask': filter_result.mask.tolist(),
+        'removed_indices': filter_result.removed_indices.tolist(),
+        'protected_indices': filter_result.protected_indices.tolist(),
+        'reasons': dict(filter_result.reasons),
+    }
 
     return df_result
 
@@ -256,6 +287,7 @@ class CALCEAdapter(BatteryDataAdapter):
             path_sorted = np.array(valid_path)[idx]
 
             all_cap = []
+            all_cycles = []
             all_soh = []
             all_ir = []
             all_ccct = []
@@ -269,11 +301,12 @@ class CALCEAdapter(BatteryDataAdapter):
                 if log_callback:
                     log_callback(f'加载 {p} ...')
 
-                cap, soh, ir, ccct, cvct = _extract_capacity_from_tabular(
+                cycles, cap, soh, ir, ccct, cvct = _extract_capacity_from_tabular(
                     df, voltage_upper, voltage_lower,
                     cc_step, cv_step, discharge_step,
                     log_callback, name
                 )
+                all_cycles.extend(cycles)
                 all_cap.extend(cap)
                 all_soh.extend(soh)
                 all_ir.extend(ir)
@@ -281,7 +314,7 @@ class CALCEAdapter(BatteryDataAdapter):
                 all_cvct.extend(cvct)
 
             df_result = _build_battery_dataframe(
-                all_cap, all_soh, all_ir, all_ccct, all_cvct,
+                all_cycles, all_cap, all_soh, all_ir, all_ccct, all_cvct,
                 name, log_callback
             )
             if df_result is not None:
@@ -349,10 +382,13 @@ class NASAAdapter(BatteryDataAdapter):
                 log_callback(f'加载数据集 {name}...')
 
             discharge_capacities = []
+            discharge_cycles = []
             health_indicator = []
             internal_resistance = []
             CCCT = []
             CVCT = []
+            pending_ccct = np.nan
+            pending_cvct = np.nan
 
             for p in file_list:
                 if stop_flag is not None and stop_flag():
@@ -411,6 +447,7 @@ class NASAAdapter(BatteryDataAdapter):
                                     continue
 
                             if cap > 0 and not np.isnan(cap):
+                                discharge_cycles.append(i + 1)
                                 discharge_capacities.append(cap)
 
                                 # SOH：从电压-容量曲线提取
@@ -433,8 +470,10 @@ class NASAAdapter(BatteryDataAdapter):
                                     health_indicator.append(np.nan)
 
                                 internal_resistance.append(np.nan)
-                                CCCT.append(np.nan)
-                                CVCT.append(np.nan)
+                                CCCT.append(pending_ccct)
+                                CVCT.append(pending_cvct)
+                                pending_ccct = np.nan
+                                pending_cvct = np.nan
 
                         elif str(cycle_type).lower() == 'charge':
                             # 从充电阶段提取 CCCT / CVCT
@@ -443,16 +482,16 @@ class NASAAdapter(BatteryDataAdapter):
                             if len(t) > 1:
                                 total_time = t[-1] - t[0]
                                 # 粗略估计：电压变化率小于阈值时为恒压阶段
-                                CVCT.append(float(total_time))
-                                CCCT.append(float(total_time * 0.4))
+                                pending_cvct = float(total_time)
+                                pending_ccct = float(total_time * 0.4)
                             else:
-                                CCCT.append(np.nan)
-                                CVCT.append(np.nan)
+                                pending_ccct = np.nan
+                                pending_cvct = np.nan
                     except (IndexError, KeyError, ValueError):
                         continue
 
             df_result = _build_battery_dataframe(
-                discharge_capacities, health_indicator,
+                discharge_cycles, discharge_capacities, health_indicator,
                 internal_resistance, CCCT, CVCT,
                 name, log_callback
             )

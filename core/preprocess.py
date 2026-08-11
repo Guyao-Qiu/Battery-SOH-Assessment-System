@@ -18,6 +18,21 @@ class LeaveOneOutSplit:
     training_batteries: tuple
 
 
+@dataclass(frozen=True)
+class OutlierFilterResult:
+    """Auditable result of capacity cleaning."""
+
+    indices: np.ndarray
+    mask: np.ndarray
+    removed_indices: np.ndarray
+    protected_indices: np.ndarray
+    reasons: dict
+
+    @property
+    def removed_count(self):
+        return int(len(self.removed_indices))
+
+
 class CapacityScaler:
     """Capacity scaling fitted once on training data and safe to serialize as JSON."""
 
@@ -106,21 +121,82 @@ class CapacityScaler:
         return scaler
 
 
+def filter_capacity_outliers(array, bins=40, enabled=True,
+                             protect_knees=True):
+    """Filter local 2-sigma outliers while preserving stable and knee regions."""
+    values = np.asarray(array, dtype=np.float64).reshape(-1)
+    if bins <= 0:
+        raise ValueError('异常值窗口大小必须大于 0')
+    finite = np.isfinite(values)
+    mask = finite.copy()
+    reasons = {
+        int(index): '非有限容量值'
+        for index in np.flatnonzero(~finite)
+    }
+    protected = set()
+
+    if enabled:
+        for start in range(0, len(values), bins):
+            end = min(start + bins, len(values))
+            local = values[start:end]
+            local_finite = np.isfinite(local)
+            finite_values = local[local_finite]
+            if len(finite_values) < 3:
+                continue
+            sigma = float(np.std(finite_values))
+            mean = float(np.mean(finite_values))
+            tolerance = max(1e-12, abs(mean) * 1e-12)
+            if sigma <= tolerance:
+                continue
+            lower = mean - 2 * sigma
+            upper = mean + 2 * sigma
+            in_range = ((local >= lower - tolerance) &
+                        (local <= upper + tolerance) & local_finite)
+            for local_index in np.flatnonzero(local_finite & ~in_range):
+                index = start + int(local_index)
+                mask[index] = False
+                reasons[index] = (
+                    f'超出局部均值±2σ范围 [{lower:.6g}, {upper:.6g}]')
+
+            if protect_knees:
+                candidates = [
+                    index for index in range(start, end)
+                    if finite[index] and not mask[index]]
+                for index in candidates:
+                    if index == start or index + 2 >= end:
+                        continue
+                    previous = values[index - 1]
+                    future = values[index:min(index + 3, end)]
+                    drop_threshold = max(abs(previous) * 0.02, tolerance)
+                    persistent_drop = (
+                        previous - values[index] >= drop_threshold and
+                        len(future) >= 3 and
+                        np.all(np.diff(future) <= tolerance))
+                    if not persistent_drop:
+                        continue
+                    for candidate in candidates:
+                        if candidate >= index and values[candidate] <= (
+                                previous + tolerance):
+                            mask[candidate] = True
+                            protected.add(candidate)
+                            reasons.pop(candidate, None)
+                    break
+
+    indices = np.flatnonzero(mask).astype(int)
+    removed = np.flatnonzero(~mask).astype(int)
+    return OutlierFilterResult(
+        indices=indices,
+        mask=mask,
+        removed_indices=removed,
+        protected_indices=np.asarray(sorted(protected), dtype=int),
+        reasons=reasons,
+    )
+
+
 def drop_outlier(array, count, bins):
-    index = []
-    for start in range(0, count, bins):
-        end = min(start + bins, count)
-        array_lim = array[start:end]
-        if len(array_lim) < 3:
-            index.extend(list(range(start, end)))
-            continue
-        sigma = np.std(array_lim)
-        mean = np.mean(array_lim)
-        th_max, th_min = mean + sigma * 2, mean - sigma * 2
-        idx = np.where((array_lim < th_max) & (array_lim > th_min))
-        idx = idx[0] + start
-        index.extend(list(idx))
-    return np.array(index)
+    """Backward-compatible index-only wrapper."""
+    values = np.asarray(array).reshape(-1)[:count]
+    return filter_capacity_outliers(values, bins=bins).indices
 
 
 def build_instances(sequence, window_size):
