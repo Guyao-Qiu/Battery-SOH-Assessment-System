@@ -130,6 +130,7 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=
         recursive = protocols['recursive']
         metrics = dict(one_step['metrics'])
         metrics['re'] = protocols['rul_re']
+        metrics['re_status'] = recursive['metrics'].get('re_status')
         pred_list = train_data + list(one_step['prediction'])
         return pred_list, metrics, {
             'training_batteries': split.training_batteries,
@@ -215,6 +216,7 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=
     recursive = protocols['recursive']
     metrics = dict(one_step['metrics'])
     metrics['re'] = protocols['rul_re']
+    metrics['re_status'] = recursive['metrics'].get('re_status')
     pred_list = train_data + list(one_step['prediction'])
     return pred_list, metrics, {
         'training_batteries': split.training_batteries,
@@ -287,7 +289,11 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None)
         # 计算置信区间
         ci_info = {}
         for key in ('rmse', 'mae', 'r2', 'pearson', 're'):
-            vals = [m[key] for m in all_metrics if key in m]
+            vals = [
+                float(m[key]) for m in all_metrics
+                if key in m and m[key] is not None
+                and np.isfinite(m[key])
+            ]
             if not vals:
                 continue
             mean, lo, hi, std = confidence_interval(vals, confidence=0.95)
@@ -307,12 +313,23 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None)
             ]
             if not protocol_metrics:
                 return {}
-            keys = set.intersection(
-                *(set(item) for item in protocol_metrics))
-            return {
-                key: float(np.mean([item[key] for item in protocol_metrics]))
-                for key in keys
-            }
+            result = {}
+            for key in ('rmse', 'mae', 'r2', 'pearson', 're'):
+                values = [
+                    float(item[key]) for item in protocol_metrics
+                    if item.get(key) is not None
+                    and np.isfinite(item[key])
+                ]
+                if values:
+                    result[key] = float(np.mean(values))
+            statuses = [
+                item.get('re_status') for item in protocol_metrics
+                if item.get('re_status')
+            ]
+            if statuses:
+                result['re_status'] = (
+                    statuses[0] if len(set(statuses)) == 1 else 'mixed')
+            return result
 
         def mean_protocol_prediction(field):
             values = [item[field] for item in run_details if field in item]
@@ -333,7 +350,9 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None)
             'mae': mean_metrics['mae'],
             'r2': mean_metrics['r2'],
             'pearson': mean_metrics['pearson'],
-            're': mean_metrics.get('re', 0.0),
+            're': mean_metrics.get('re'),
+            're_status': recursive_metrics.get(
+                're_status', 'unavailable'),
             'n_seeds': len(all_metrics),
             'ci': ci_info,
             'ci_statistical_object': '同一留一折内的随机种子波动',
@@ -351,7 +370,9 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None)
         selected_score = mean_metrics.get(
             selected_metric, mean_metrics['rmse'])
         results[name] = {
-            'score': float(selected_score),
+            'score': (
+                float(selected_score)
+                if selected_score is not None else None),
             'prediction': mean_prediction.tolist(),
             'detail': detail,
         }

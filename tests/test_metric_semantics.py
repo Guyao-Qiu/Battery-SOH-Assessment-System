@@ -127,7 +127,7 @@ class MetricPresentationTests(unittest.TestCase):
         self.assertIsNotNone(mean_available)
         self.assertEqual(formatter(None), "N/A（截尾）")
         self.assertIsNone(mean_available([None, float("nan")]))
-        self.assertEqual(mean_available([None, 0.2, 0.4]), 0.3)
+        self.assertAlmostEqual(mean_available([None, 0.2, 0.4]), 0.3)
 
     def test_ui_explains_ci_is_only_within_fold_seed_variation(self):
         from PyQt6.QtWidgets import QLabel

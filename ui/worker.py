@@ -120,12 +120,18 @@ class EvalWorker(QThread):
                         f'95%CI=[{c["lower"]:.6f}, {c["upper"]:.6f}]')
                 else:
                     score = result['score']
-                    self.log_signal.emit(f'  {name}：{score:.6f}')
+                    score_text = (
+                        'N/A（截尾）' if score is None else f'{score:.6f}')
+                    self.log_signal.emit(f'  {name}：{score_text}')
             if results:
-                avg = np.mean([
+                scores = [
                     result['score'] for result in results.values()
-                ])
-                self.log_signal.emit(f'→ 平均 {metric_name}: {avg:.6f}')
+                    if result['score'] is not None
+                    and np.isfinite(result['score'])
+                ]
+                avg_text = (
+                    f'{np.mean(scores):.6f}' if scores else 'N/A（截尾）')
+                self.log_signal.emit(f'→ 平均 {metric_name}: {avg_text}')
                 hint_map = {
                     'rmse': 'RMSE 为均方根误差（Ah），越小越准，<0.02 优秀、<0.05 良好',
                     'mae': 'MAE 为平均绝对误差，越小越准，对离群点不敏感',

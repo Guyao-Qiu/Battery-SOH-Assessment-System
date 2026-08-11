@@ -3,19 +3,46 @@ import numpy as np
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 
+def _first_failure_index(values, threshold):
+    values = np.asarray(values, dtype=np.float64).reshape(-1)
+    positions = np.flatnonzero(values < threshold)
+    return int(positions[0]) if len(positions) else None
+
+
+def relative_error_details(y_test, y_predict, threshold):
+    """Return RE with an explicit observed/censored status."""
+    true_re = _first_failure_index(y_test, threshold)
+    pred_re = _first_failure_index(y_predict, threshold)
+
+    if true_re == 0:
+        status = 'observed_initial_failure'
+        value = None
+    elif true_re is None and pred_re is None:
+        status = 'both_censored'
+        value = None
+    elif true_re is None:
+        status = 'observed_censored'
+        value = None
+    elif pred_re is None:
+        status = 'prediction_censored'
+        value = None
+    elif pred_re == 0:
+        status = 'prediction_initial_failure'
+        value = None
+    else:
+        status = 'observed'
+        value = abs(true_re - pred_re) / true_re
+
+    return {
+        'value': value,
+        'status': status,
+        'true_crossing_index': true_re,
+        'predicted_crossing_index': pred_re,
+    }
+
+
 def relative_error(y_test, y_predict, threshold):
-    true_re, pred_re = None, None
-    for i in range(len(y_test) - 1):
-        if y_test[i] >= threshold > y_test[i + 1]:
-            true_re = i + 1
-            break
-    for i in range(len(y_predict) - 1):
-        if y_predict[i] >= threshold > y_predict[i + 1]:
-            pred_re = i + 1
-            break
-    if true_re is None or pred_re is None or true_re == 0:
-        return 1.0
-    return abs(true_re - pred_re) / true_re
+    return relative_error_details(y_test, y_predict, threshold)['value']
 
 
 def evaluation(y_test, y_predict):
@@ -55,8 +82,13 @@ def calc_all_metrics(y_test, y_predict, rated_capacity=None, threshold_ratio=Non
         'pearson': calc_pearson(y_test, y_predict),
     }
     if rated_capacity is not None and threshold_ratio is not None:
-        metrics['re'] = relative_error(
+        re_result = relative_error_details(
             y_test, y_predict, rated_capacity * threshold_ratio)
+        metrics['re'] = re_result['value']
+        metrics['re_status'] = re_result['status']
+        metrics['true_eol_index'] = re_result['true_crossing_index']
+        metrics['predicted_eol_index'] = re_result[
+            'predicted_crossing_index']
     return metrics
 
 

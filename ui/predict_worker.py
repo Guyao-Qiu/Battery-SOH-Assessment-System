@@ -35,6 +35,7 @@ def evaluate_loaded_sequence(model, metadata, capacity, threshold_ratio,
     recursive = protocols['recursive']
     metrics = dict(one_step['metrics'])
     metrics['re'] = protocols['rul_re']
+    metrics['re_status'] = recursive['metrics'].get('re_status')
     prediction = capacity[:window_size].tolist()
     prediction.extend(one_step['prediction'].tolist())
     detail = {
@@ -59,9 +60,23 @@ def summarize_selected_metrics(detail_list, metric):
     else:
         raise ValueError(f'不支持的评估指标: {metric}')
     return {
-        key: float(np.mean([item[key] for item in detail_list]))
+        key: mean_available_metric([item.get(key) for item in detail_list])
         for key in keys
     }
+
+
+def mean_available_metric(values):
+    available = [
+        float(value) for value in values
+        if value is not None and np.isfinite(value)
+    ]
+    if not available:
+        return None
+    return float(np.mean(available))
+
+
+def _format_metric(value):
+    return 'N/A（截尾）' if value is None else f'{value:.6f}'
 
 
 class PredictWorker(QThread):
@@ -144,7 +159,9 @@ class PredictWorker(QThread):
                         else detail[self.config.metric]
                     )
                     results[name] = {
-                        'score': float(selected_score),
+                        'score': (
+                            float(selected_score)
+                            if selected_score is not None else None),
                         'prediction': list(prediction),
                         'detail': detail,
                     }
@@ -152,7 +169,7 @@ class PredictWorker(QThread):
                         f'[{name}] RMSE={detail["rmse"]:.4f} '
                         f'MAE={detail["mae"]:.4f} R²={detail["r2"]:.4f} '
                         f'Pearson={detail["pearson"]:.4f} '
-                        f'RE(递归)={detail["re"]:.4f}')
+                        f'RE(递归)={_format_metric(detail["re"])}')
                 except Exception as e:
                     self.log_signal.emit(f'[{name}] 预测异常：{e}')
                     continue
@@ -167,22 +184,24 @@ class PredictWorker(QThread):
                 for item in detail_list:
                     self.log_signal.emit(
                         f'  {item["battery"]}：' + '，'.join(
-                            f'{METRIC_LABELS[key]}={item[key]:.6f}'
+                            f'{METRIC_LABELS[key]}='
+                            f'{_format_metric(item.get(key))}'
                             for key in METRIC_LABELS))
                 for key, value in summaries.items():
                     self.log_signal.emit(
-                        f'→ 平均 {METRIC_LABELS[key]}: {value:.6f}')
+                        f'→ 平均 {METRIC_LABELS[key]}: '
+                        f'{_format_metric(value)}')
             else:
                 metric_name = METRIC_LABELS[self.config.metric]
                 self.log_signal.emit(f'各电池 {metric_name} 分数：')
                 for item in detail_list:
                     self.log_signal.emit(
                         f'  {item["battery"]}：'
-                        f'{item[self.config.metric]:.6f}')
+                        f'{_format_metric(item.get(self.config.metric))}')
                 if summaries:
                     self.log_signal.emit(
                         f'→ 平均 {metric_name}: '
-                        f'{summaries[self.config.metric]:.6f}')
+                        f'{_format_metric(summaries[self.config.metric])}')
 
             elapsed = time.time() - start_time
             self.result_signal.emit(results, elapsed)

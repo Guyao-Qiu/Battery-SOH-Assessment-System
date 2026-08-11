@@ -30,6 +30,7 @@ from utils.config import (
 from utils.logger import setup_logger
 from utils.icon_generator import get_app_icon, get_dialog_icon, show_message
 from core.adapters import get_adapter_list
+from core.result_semantics import analyze_failure_cycles
 from core.report_export import (
     ExportCancelled,
     ReportExportError,
@@ -51,6 +52,12 @@ def _map_norm(val):
 def _map_device(val):
     m = str(val).lower()
     return {'cpu': 'CPU', 'cuda': 'GPU (CUDA)'}.get(m, 'CPU')
+
+
+def format_metric_value(value):
+    if value is None or not np.isfinite(value):
+        return 'N/A（截尾）'
+    return f'{value:.6f}'
 
 _JSON_CONFIG_MAP = [
     (('rated_capacity',),           'rated_capacity_spin',      float),
@@ -1528,12 +1535,16 @@ class MainWindow(QMainWindow):
                 item['failure_cycle_protocol'] = 'recursive_future'
             else:
                 item['failure_cycle_protocol'] = 'legacy_prediction'
-            failure_cycle = None
-            for j, val in enumerate(pred):
-                if val < threshold:
-                    failure_cycle = j
-                    break
-            item['failure_cycle'] = failure_cycle
+            battery_data = self.worker.battery_dict.get(name, {})
+            measured = np.asarray(
+                battery_data.get('capacity', pred), dtype=np.float64)
+            cycle_ids = battery_data.get(
+                'cycle', np.arange(len(measured)))
+            semantics = analyze_failure_cycles(
+                cycle_ids, measured, pred, threshold)
+            item.update(semantics)
+            item['failure_cycle'] = semantics[
+                'predicted_failure_cycle']
             item['threshold'] = threshold
 
         self._last_run_snapshot = self._active_run_snapshot.with_results(
@@ -1606,21 +1617,32 @@ class MainWindow(QMainWindow):
             ci = item.get('ci', {})
             n_seeds = item.get('n_seeds', 1)
 
+            measured_fc = item.get('measured_failure_cycle')
+            if measured_fc is not None:
+                measured_lbl = QLabel(f'第 {measured_fc} 个原始循环')
+                measured_lbl.setProperty('role', 'resultStatus')
+                measured_lbl.setProperty('state', 'danger')
+            else:
+                measured_lbl = QLabel('观测期内未失效')
+                measured_lbl.setProperty('role', 'resultStatus')
+                measured_lbl.setProperty('state', 'success')
+            form_layout.addRow('实测失效:', measured_lbl)
+
             fc = item.get('failure_cycle')
             if fc is not None:
-                fc_lbl = QLabel(f'第 {fc} 次循环')
+                fc_lbl = QLabel(f'第 {fc} 个原始循环')
                 fc_lbl.setProperty('role', 'resultStatus')
                 fc_lbl.setProperty('state', 'warning')
-                form_layout.addRow('失效循环:', fc_lbl)
+                form_layout.addRow('模型预测失效:', fc_lbl)
                 cap_lbl = QLabel(f'{item["threshold"]:.2f} Ah')
                 cap_lbl.setProperty('role', 'resultStatus')
                 cap_lbl.setProperty('state', 'danger')
                 form_layout.addRow('失效容量:', cap_lbl)
             else:
-                ok_lbl = QLabel('未失效')
+                ok_lbl = QLabel('观测期内未预测到失效')
                 ok_lbl.setProperty('role', 'resultStatus')
                 ok_lbl.setProperty('state', 'success')
-                form_layout.addRow('失效循环:', ok_lbl)
+                form_layout.addRow('模型预测失效:', ok_lbl)
 
             # RMSE
             if _should_show('RMSE'):
@@ -1668,7 +1690,7 @@ class MainWindow(QMainWindow):
 
             # RE
             if _should_show('RE'):
-                re_lbl = QLabel(f"{item['re']:.6f}")
+                re_lbl = QLabel(format_metric_value(item.get('re')))
                 form_layout.addRow('RE:', re_lbl)
                 if n_seeds > 1 and 're' in ci:
                     c = ci['re']
@@ -1681,6 +1703,13 @@ class MainWindow(QMainWindow):
                 ns_lbl = QLabel(f'{n_seeds} 次实验')
                 ns_lbl.setStyleSheet('color: #315B5A; font-weight: 600;')
                 form_layout.addRow('多种子数:', ns_lbl)
+                ci_scope = QLabel(
+                    '仅表示同一留一折内的随机种子波动，'
+                    '不代表跨电池总体不确定性')
+                ci_scope.setWordWrap(True)
+                ci_scope.setStyleSheet(
+                    'color: #59635D; font-size: 9pt;')
+                form_layout.addRow('置信区间口径:', ci_scope)
 
             battery_group.setLayout(form_layout)
             self.result_container_layout.addWidget(battery_group)
