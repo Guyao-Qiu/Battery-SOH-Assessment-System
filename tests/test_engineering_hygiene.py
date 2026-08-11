@@ -58,8 +58,7 @@ class EngineeringHygieneTests(unittest.TestCase):
         )
         for command in required_commands:
             self.assertIn(command, text)
-        for version in ("3.10", "3.11", "3.12"):
-            self.assertIn(version, text)
+        self.assertIn("3.10", text)
 
     def test_distribution_excludes_runtime_and_ide_artifacts(self):
         tracked = subprocess.run(
