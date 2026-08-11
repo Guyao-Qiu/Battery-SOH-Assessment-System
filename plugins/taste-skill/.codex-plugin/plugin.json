@@ -1,0 +1,18 @@
+{
+  "name": "taste-skill",
+  "version": "0.1.0",
+  "description": "Taste Skill plugin",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Taste Skill",
+    "shortDescription": "Use Taste Skill in Codex.",
+    "longDescription": "Taste Skill adds a local Codex plugin scaffold.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me use Taste Skill."
+  }
+}

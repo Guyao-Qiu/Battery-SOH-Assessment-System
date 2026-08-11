@@ -1,0 +1,18 @@
+{
+  "name": "impeccable-safe",
+  "version": "0.1.0+codex.20260810013734",
+  "description": "Offline-only Impeccable UI/UX guidance for Codex",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Impeccable Safe",
+    "shortDescription": "Offline UI/UX design guidance.",
+    "longDescription": "Provides Impeccable's design guidance and references without upstream scripts, telemetry, update checks, image API calls, hooks, or live services.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Use the offline Impeccable Safe UI/UX guidance for this task."
+  }
+}
