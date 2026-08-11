@@ -318,11 +318,12 @@ class MainWindow(QMainWindow):
         save_config(cfg)
 
     def closeEvent(self, event):
-        # 窗口关闭时强制终止正在运行的工作线程
-        if self.worker is not None and self.worker.isRunning():
-            self.worker.request_stop()
-            self.worker.terminate()
-            self.worker.wait(2000)
+        if not self._request_worker_stop(timeout_ms=5000, closing=True):
+            show_message(
+                self, 'warning', '仍在安全停止',
+                '训练线程尚未到达安全检查点，窗口暂不关闭。请稍候后再次关闭，避免损坏模型或报告。')
+            event.ignore()
+            return
         self._save_persisted_config()
         super().closeEvent(event)
 
@@ -792,6 +793,29 @@ class MainWindow(QMainWindow):
 
     def _set_running_state(self, running, message):
         """同步主操作、停止按钮、进度和状态文字。"""
+        locked_controls = [
+            self.import_btn, self.import_dir_btn, self.import_json_btn,
+            self.delete_btn, self.import_list,
+            self.rnn_btn, self.gru_btn, self.lstm_btn,
+            self.xgboost_btn, self.rf_btn,
+            self.load_model_btn, self.save_model_btn,
+            self.unload_model_btn, self.tcp_btn,
+            self.save_chart_btn, self.export_btn,
+        ]
+        locked_controls.extend(
+            widget for _, widget, _ in getattr(self, '_param_rows', []))
+        locked_controls.extend([
+            self.adapter_combo, self.cc_step_spin, self.cv_step_spin,
+            self.discharge_step_spin,
+        ])
+        for control in locked_controls:
+            control.setEnabled(not running)
+        if not running:
+            self.save_model_btn.setEnabled(self.final_trained_model is not None)
+            self.unload_model_btn.setEnabled(self.loaded_model is not None)
+            self.tcp_btn.setEnabled(self.loaded_model is not None)
+            self.export_btn.setEnabled(bool(getattr(self, '_last_detail', None)))
+            self._on_adapter_changed()
         self.start_btn.setEnabled(not running)
         self.pause_btn.setEnabled(running)
         self.progress_bar.setVisible(running)
@@ -1089,27 +1113,32 @@ class MainWindow(QMainWindow):
 
     def pause_evaluation(self):
         if self.worker is not None and self.worker.isRunning():
-            worker = self.worker
+            self.pause_btn.setEnabled(False)
+            self.run_status_label.setText('正在安全停止，请稍候…')
+            if self._request_worker_stop(timeout_ms=3000):
+                self.append_log('评估已在安全检查点停止。')
+                self._set_running_state(False, '评估已停止')
+                self._show_result_state(
+                    '评估已停止', '参数和导入数据均已保留，可调整后重新开始。')
+            else:
+                show_message(
+                    self, 'warning', '仍在安全停止',
+                    '当前计算尚未到达安全检查点。系统不会强制终止，请稍候；停止完成前不能开始新任务或导出报告。')
+
+    def _request_worker_stop(self, timeout_ms, closing=False):
+        worker = self.worker
+        if worker is None or not worker.isRunning():
             self.worker = None
-
-            # 断开所有信号连接，防止终止后回调触发异常
-            for sig_name in ('log_signal', 'error_signal', 'result_signal',
-                             'finished_signal', 'final_model_signal', 'progress_signal'):
-                sig = getattr(worker, sig_name, None)
-                if sig is not None:
-                    try:
-                        sig.disconnect()
-                    except TypeError:
-                        pass
-
-            # 先设置停止标志（协作式），再强制终止线程以达到立刻停止的效果
-            worker.request_stop()
-            worker.terminate()
-            worker.wait(3000)
-
-            self.append_log('已强制停止当前进程。')
-            self._set_running_state(False, '评估已停止')
-            self._show_result_state('评估已停止', '参数和导入数据均已保留，可调整后重新开始。')
+            return True
+        worker.request_stop()
+        worker.requestInterruption()
+        if worker.wait(timeout_ms):
+            self.worker = None
+            return True
+        if not closing:
+            self._set_running_state(True, '正在安全停止，请稍候…')
+            self.pause_btn.setEnabled(False)
+        return False
 
     def save_model(self):
         if self.final_trained_model is None:
@@ -1464,6 +1493,7 @@ class MainWindow(QMainWindow):
     def on_finished(self):
         if not self.start_btn.isEnabled():
             self._set_running_state(False, '准备就绪')
+        self.worker = None
 
     def on_result(self, score_list, prediction_list, detail_list, elapsed):
         self._last_score = score_list

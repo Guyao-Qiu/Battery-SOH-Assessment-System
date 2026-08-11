@@ -11,6 +11,7 @@ from core.preprocess import (
 )
 from core.prediction import predict_capacity_batch
 from core.evaluate import calc_all_metrics, confidence_interval
+from core.cancellation import check_cancelled
 from utils.config import setup_seed
 
 
@@ -46,6 +47,7 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=
     pred_list: 预测容量序列（含 train_data 前缀），用于绘图
     metrics_dict: 该电池的 rmse/mae/r2/pearson/re
     """
+    check_cancelled(stop_flag)
     feature_size = config.window_size
     hidden_dim = config.hidden_dim
     mode = config.mode
@@ -102,7 +104,8 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=
                 patience=config.patience,
                 seed=use_seed,
                 log_callback=log_callback,
-                name=name
+                name=name,
+                stop_flag=stop_flag,
             )
         else:
             model = train_rf(
@@ -114,8 +117,10 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=
                 patience=config.patience,
                 seed=use_seed,
                 log_callback=log_callback,
-                name=name
+                name=name,
+                stop_flag=stop_flag,
             )
+        check_cancelled(stop_flag)
         protocols = evaluate_prediction_protocols(
             split.target_sequence, feature_size,
             lambda windows: predict_capacity_batch(
@@ -157,8 +162,7 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=
     y_val = torch.from_numpy(y_val).to(device)
 
     for epoch in range(epochs):
-        if stop_flag is not None and stop_flag():
-            break
+        check_cancelled(stop_flag)
 
         model.train()
         output = model(X)
@@ -168,8 +172,7 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=
         loss.backward()
         optimizer.step()
 
-        if stop_flag is not None and stop_flag():
-            break
+        check_cancelled(stop_flag)
 
         model.eval()
         with torch.no_grad():
@@ -197,6 +200,7 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None, log_callback=
                 log_callback(f'[{name}] 第{epoch + 1}轮早停（仅依据训练电池验证集）')
             break
 
+    check_cancelled(stop_flag)
     if best_state is not None:
         model.load_state_dict(best_state)
     model.eval()
@@ -246,8 +250,7 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None)
             f'</span>')
 
     for i in range(len(battery_list)):
-        if stop_flag is not None and stop_flag():
-            break
+        check_cancelled(stop_flag)
         name = battery_list[i]
         if name not in battery_dict:
             continue
@@ -263,8 +266,7 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None)
         run_details = []
 
         for s_idx, sd in enumerate(seeds):
-            if stop_flag is not None and stop_flag():
-                break
+            check_cancelled(stop_flag)
 
             if n_seeds > 1 and log_callback:
                 log_callback(f'[{name}] 种子 {s_idx + 1}/{n_seeds} (seed={sd})')

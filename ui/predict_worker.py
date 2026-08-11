@@ -81,9 +81,10 @@ class PredictWorker(QThread):
 
     def request_stop(self):
         self._stop_requested = True
+        self.requestInterruption()
 
     def stop_requested(self):
-        return self._stop_requested
+        return self._stop_requested or self.isInterruptionRequested()
 
     def run(self):
         try:

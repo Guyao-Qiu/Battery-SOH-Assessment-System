@@ -2,12 +2,14 @@ import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error
 from math import sqrt
+from core.cancellation import check_cancelled
 
 
 def train_rf(train_x, train_y, val_x, val_y, n_estimators=100,
              max_depth=10, min_samples_leaf=1, max_features=1.0,
              patience=20, seed=2,
-             log_callback=None, name=''):
+             log_callback=None, name='', stop_flag=None):
+    check_cancelled(stop_flag)
     batch_size = max(1, min(10, n_estimators // 10))
     best_score = float('inf')
     best_n_trees = n_estimators
@@ -28,8 +30,10 @@ def train_rf(train_x, train_y, val_x, val_y, n_estimators=100,
         log_callback(f'[{name}] 开始训练...')
 
     while total_trees < n_estimators:
+        check_cancelled(stop_flag)
         model.n_estimators = total_trees + batch_size
         model.fit(train_x, train_y)
+        check_cancelled(stop_flag)
 
         val_pred = np.asarray(model.predict(val_x)).reshape(-1)
         rmse = sqrt(mean_squared_error(val_y, val_pred))
@@ -51,15 +55,23 @@ def train_rf(train_x, train_y, val_x, val_y, n_estimators=100,
                 log_callback(f'[{name}] 第{total_trees}棵树早停')
             break
 
+    first_batch = min(batch_size, best_n_trees)
     final_model = RandomForestRegressor(
-        n_estimators=best_n_trees,
+        n_estimators=first_batch,
         max_depth=max_depth,
         min_samples_leaf=min_samples_leaf,
         max_features=max_features,
         random_state=seed,
         n_jobs=-1,
+        warm_start=True,
     )
-    final_model.fit(train_x, train_y)
+    fitted_trees = 0
+    while fitted_trees < best_n_trees:
+        check_cancelled(stop_flag)
+        fitted_trees = min(fitted_trees + batch_size, best_n_trees)
+        final_model.n_estimators = fitted_trees
+        final_model.fit(train_x, train_y)
+        check_cancelled(stop_flag)
     if log_callback:
         log_callback(f'[{name}] 训练完成，树数={n_estimators}（验证选择{best_n_trees}）')
 

@@ -25,9 +25,10 @@ class EvalWorker(QThread):
 
     def request_stop(self):
         self._stop_requested = True
+        self.requestInterruption()
 
     def stop_requested(self):
-        return self._stop_requested
+        return self._stop_requested or self.isInterruptionRequested()
 
     def run(self):
         try:
@@ -92,6 +93,9 @@ class EvalWorker(QThread):
                 self.final_model_signal.emit(final_model, final_metadata)
                 self.log_signal.emit('最终模型训练完成，可点击"保存模型"导出。')
             except Exception as e:
+                from core.cancellation import TrainingCancelled
+                if isinstance(e, TrainingCancelled):
+                    raise
                 self.log_signal.emit(f'最终模型训练失败：{e}')
 
             self.log_signal.emit('\n\n')
@@ -150,6 +154,11 @@ class EvalWorker(QThread):
             self.result_signal.emit(score_list, pred_list, detail, elapsed)
             self.finished_signal.emit()
         except Exception as e:
+            from core.cancellation import TrainingCancelled
+            if isinstance(e, TrainingCancelled):
+                self.log_signal.emit('训练已在安全检查点停止。')
+                self.finished_signal.emit()
+                return
             import traceback
             self.error_signal.emit(f'{e}\n{traceback.format_exc()}')
             self.finished_signal.emit()

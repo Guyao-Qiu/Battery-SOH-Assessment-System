@@ -10,6 +10,10 @@ import torch
 import torch.nn as nn
 from models.rnn_model import Net
 from core.preprocess import build_instances, CapacityScaler
+from core.cancellation import (
+    check_cancelled,
+    xgboost_stop_callbacks,
+)
 from utils.config import normalize_model_name
 
 
@@ -362,6 +366,7 @@ def _prepare_final_training_data(config, battery_dict, battery_list):
 def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
                             log_callback=None):
     """Tune on a held-out validation set, then refit on every valid battery."""
+    check_cancelled(stop_flag)
     mode = normalize_model_name(config.mode)
     data = _prepare_final_training_data(
         config, battery_dict, battery_list)
@@ -392,8 +397,7 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
         best_epoch = 1
         counter = 0
         for epoch in range(max(1, config.epochs)):
-            if stop_flag is not None and stop_flag():
-                break
+            check_cancelled(stop_flag)
             tuning_model.train()
             output = tuning_model(x_train_tensor).reshape(-1, 1)
             loss = criterion(output, y_train_tensor)
@@ -427,8 +431,7 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
         all_y_tensor = torch.from_numpy(np.reshape(
             all_y, (-1, 1))).to(config.device)
         for _ in range(best_epoch):
-            if stop_flag is not None and stop_flag():
-                break
+            check_cancelled(stop_flag)
             final_model.train()
             final_output = final_model(all_x_tensor).reshape(-1, 1)
             final_loss = criterion(final_output, all_y_tensor)
@@ -436,6 +439,7 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
             final_loss.backward()
             final_optimizer.step()
         final_model.eval()
+        check_cancelled(stop_flag)
         final_model = final_model.to('cpu')
         metadata = _final_training_metadata(
             config, data['final_scaler'], data['valid_names'], battery_dict,
@@ -448,7 +452,7 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
 
     if mode == 'XGBoost':
         from xgboost import XGBRegressor
-        tuning_model = XGBRegressor(
+        tuning_options = dict(
             n_estimators=config.n_estimators,
             learning_rate=config.learning_rate,
             max_depth=config.max_depth,
@@ -458,17 +462,22 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
             random_state=seed,
             verbosity=0,
         )
+        callbacks = xgboost_stop_callbacks(stop_flag)
+        if callbacks is not None:
+            tuning_options['callbacks'] = callbacks
+        tuning_model = XGBRegressor(**tuning_options)
         if log_callback:
             log_callback('[参数选择] XGBoost 验证中...')
         tuning_model.fit(
             tuning_x, tuning_y,
             eval_set=[(validation_x, validation_y)], verbose=False)
+        check_cancelled(stop_flag)
         best_iteration = getattr(
             tuning_model.get_booster(), 'best_iteration', None)
         selected_trees = (
             int(best_iteration) + 1
             if best_iteration is not None else config.n_estimators)
-        final_model = XGBRegressor(
+        final_options = dict(
             n_estimators=selected_trees,
             learning_rate=config.learning_rate,
             max_depth=config.max_depth,
@@ -477,7 +486,11 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
             random_state=seed,
             verbosity=0,
         )
+        if callbacks is not None:
+            final_options['callbacks'] = xgboost_stop_callbacks(stop_flag)
+        final_model = XGBRegressor(**final_options)
         final_model.fit(all_x, all_y)
+        check_cancelled(stop_flag)
         metadata = _final_training_metadata(
             config, data['final_scaler'], data['valid_names'], battery_dict,
             len(all_x), {'selected_n_estimators': selected_trees})
@@ -509,11 +522,11 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
         if log_callback:
             log_callback('[参数选择] RF 验证中...')
         while total_trees < config.n_estimators:
-            if stop_flag is not None and stop_flag():
-                break
+            check_cancelled(stop_flag)
             next_trees = min(total_trees + batch_size, config.n_estimators)
             tuning_model.n_estimators = next_trees
             tuning_model.fit(tuning_x, tuning_y)
+            check_cancelled(stop_flag)
             rmse = sqrt(mean_squared_error(
                 validation_y, tuning_model.predict(validation_x)))
             if rmse < best_score:
@@ -530,15 +543,24 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
             if counter >= config.patience:
                 break
 
+        final_batch_size = min(batch_size, selected_trees)
         final_model = RandomForestRegressor(
-            n_estimators=selected_trees,
+            n_estimators=final_batch_size,
             max_depth=config.max_depth,
             min_samples_leaf=config.min_samples_leaf,
             max_features=config.max_features,
             random_state=seed,
             n_jobs=-1,
+            warm_start=True,
         )
-        final_model.fit(all_x, all_y)
+        fitted_trees = 0
+        while fitted_trees < selected_trees:
+            check_cancelled(stop_flag)
+            fitted_trees = min(
+                fitted_trees + batch_size, selected_trees)
+            final_model.n_estimators = fitted_trees
+            final_model.fit(all_x, all_y)
+            check_cancelled(stop_flag)
         metadata = _final_training_metadata(
             config, data['final_scaler'], data['valid_names'], battery_dict,
             len(all_x), {'selected_n_estimators': selected_trees})

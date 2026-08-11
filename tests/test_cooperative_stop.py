@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-import core.train as train_module
+train_module = importlib.import_module("core.train")
 from core.model_persistence import train_model_on_all_data
 from models.RF import train_rf
 from models.XGBoost import train_xgboost
@@ -35,11 +35,12 @@ def _data():
 class WorkerInterruptionTests(unittest.TestCase):
     def test_worker_stop_sets_qthread_interruption_flag(self):
         worker = EvalWorker(TrainConfig(), [])
-        self.assertFalse(worker.isInterruptionRequested())
+        with patch.object(
+                worker, "requestInterruption",
+                wraps=worker.requestInterruption) as interruption:
+            worker.request_stop()
 
-        worker.request_stop()
-
-        self.assertTrue(worker.isInterruptionRequested())
+        interruption.assert_called_once_with()
         self.assertTrue(worker.stop_requested())
 
     def test_training_entry_points_accept_stop_checkpoints(self):
@@ -62,6 +63,21 @@ class WorkerInterruptionTests(unittest.TestCase):
         with self.assertRaises(cancelled):
             train_model_on_all_data(
                 config, data, list(data), stop_flag=lambda: True)
+
+    def test_cancelled_tree_training_stops_before_returning_partial_model(self):
+        self.assertIsNotNone(cancellation)
+        cancelled = cancellation.TrainingCancelled
+        train_x = np.asarray([[1.0, 0.9], [0.9, 0.8]], dtype=np.float32)
+        train_y = np.asarray([0.8, 0.7], dtype=np.float32)
+
+        with self.assertRaises(cancelled):
+            train_rf(
+                train_x, train_y, train_x, train_y,
+                n_estimators=2, stop_flag=lambda: True)
+        with self.assertRaises(cancelled):
+            train_xgboost(
+                train_x, train_y, train_x, train_y,
+                n_estimators=2, stop_flag=lambda: True)
 
 
 class MainWindowStopTests(unittest.TestCase):
