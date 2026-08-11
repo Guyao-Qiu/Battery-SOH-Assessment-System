@@ -10,6 +10,11 @@ import torch
 import torch.nn as nn
 from models.rnn_model import Net
 from core.preprocess import build_instances, CapacityScaler
+from core.batching import (
+    evaluate_recurrent_loss,
+    make_tensor_loader,
+    train_recurrent_epoch,
+)
 from core.cancellation import (
     check_cancelled,
     xgboost_stop_callbacks,
@@ -384,31 +389,30 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
             hidden_dim=config.hidden_dim, num_layers=1, mode=mode).to(config.device)
         optimizer = torch.optim.Adam(tuning_model.parameters(), lr=0.001)
         criterion = nn.MSELoss()
-        x_train_tensor = torch.from_numpy(np.reshape(
-            tuning_x, (-1, config.window_size, 1))).to(config.device)
-        y_train_tensor = torch.from_numpy(np.reshape(
-            tuning_y, (-1, 1))).to(config.device)
-        x_val_tensor = torch.from_numpy(np.reshape(
-            validation_x, (-1, config.window_size, 1))).to(config.device)
-        y_val_tensor = torch.from_numpy(np.reshape(
-            validation_y, (-1, 1))).to(config.device)
+        tuning_loader = make_tensor_loader(
+            np.reshape(tuning_x, (-1, config.window_size, 1)),
+            np.reshape(tuning_y, (-1, 1)),
+            shuffle=False,
+            seed=seed,
+        )
+        validation_loader = make_tensor_loader(
+            np.reshape(validation_x, (-1, config.window_size, 1)),
+            np.reshape(validation_y, (-1, 1)),
+            shuffle=False,
+            seed=seed,
+        )
 
         best_loss = float('inf')
         best_epoch = 1
         counter = 0
         for epoch in range(max(1, config.epochs)):
             check_cancelled(stop_flag)
-            tuning_model.train()
-            output = tuning_model(x_train_tensor).reshape(-1, 1)
-            loss = criterion(output, y_train_tensor)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            tuning_model.eval()
-            with torch.no_grad():
-                val_loss = criterion(
-                    tuning_model(x_val_tensor).reshape(-1, 1),
-                    y_val_tensor).item()
+            loss = train_recurrent_epoch(
+                tuning_model, tuning_loader, optimizer, criterion,
+                config.device, stop_flag=stop_flag)
+            val_loss = evaluate_recurrent_loss(
+                tuning_model, validation_loader, criterion,
+                config.device, stop_flag=stop_flag)
             if val_loss < best_loss:
                 best_loss = val_loss
                 best_epoch = epoch + 1
@@ -417,7 +421,7 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
                 counter += 1
             if (epoch + 1) % 10 == 0 and log_callback:
                 log_callback(
-                    f'[参数选择] 第{epoch + 1}轮 损失={loss.item():.4f} '
+                    f'[参数选择] 第{epoch + 1}轮 损失={loss:.4f} '
                     f'验证损失={val_loss:.4f}')
             if counter >= config.patience:
                 break
@@ -426,18 +430,17 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
         final_model = Net(
             hidden_dim=config.hidden_dim, num_layers=1, mode=mode).to(config.device)
         final_optimizer = torch.optim.Adam(final_model.parameters(), lr=0.001)
-        all_x_tensor = torch.from_numpy(np.reshape(
-            all_x, (-1, config.window_size, 1))).to(config.device)
-        all_y_tensor = torch.from_numpy(np.reshape(
-            all_y, (-1, 1))).to(config.device)
+        all_loader = make_tensor_loader(
+            np.reshape(all_x, (-1, config.window_size, 1)),
+            np.reshape(all_y, (-1, 1)),
+            shuffle=False,
+            seed=seed,
+        )
         for _ in range(best_epoch):
             check_cancelled(stop_flag)
-            final_model.train()
-            final_output = final_model(all_x_tensor).reshape(-1, 1)
-            final_loss = criterion(final_output, all_y_tensor)
-            final_optimizer.zero_grad()
-            final_loss.backward()
-            final_optimizer.step()
+            train_recurrent_epoch(
+                final_model, all_loader, final_optimizer, criterion,
+                config.device, stop_flag=stop_flag)
         final_model.eval()
         check_cancelled(stop_flag)
         final_model = final_model.to('cpu')

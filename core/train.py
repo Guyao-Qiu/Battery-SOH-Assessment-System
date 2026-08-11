@@ -13,6 +13,11 @@ from core.preprocess import (
 from core.prediction import predict_capacity_batch
 from core.evaluate import calc_all_metrics, confidence_interval
 from core.cancellation import check_cancelled
+from core.batching import (
+    evaluate_recurrent_loss,
+    make_tensor_loader,
+    train_recurrent_epoch,
+)
 from core.progress import make_progress_event
 from utils.config import setup_seed
 
@@ -160,24 +165,25 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None,
     best_state = None
     best_epoch = 0
 
-    X = np.reshape(scaled_train_x, (-1, feature_size, 1))
-    y = np.reshape(scaled_train_y, (-1, 1))
-    X, y = torch.from_numpy(X).to(device), torch.from_numpy(y).to(device)
-    X_val = np.reshape(scaled_val_x, (-1, feature_size, 1))
-    y_val = np.reshape(scaled_val_y, (-1, 1))
-    X_val = torch.from_numpy(X_val).to(device)
-    y_val = torch.from_numpy(y_val).to(device)
+    train_loader = make_tensor_loader(
+        np.reshape(scaled_train_x, (-1, feature_size, 1)),
+        np.reshape(scaled_train_y, (-1, 1)),
+        shuffle=False,
+        seed=seed if seed is not None else config.seed,
+    )
+    val_loader = make_tensor_loader(
+        np.reshape(scaled_val_x, (-1, feature_size, 1)),
+        np.reshape(scaled_val_y, (-1, 1)),
+        shuffle=False,
+        seed=seed if seed is not None else config.seed,
+    )
 
     for epoch in range(epochs):
         check_cancelled(stop_flag)
 
-        model.train()
-        output = model(X)
-        output = output.reshape(-1, 1)
-        loss = criterion(output, y)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        loss = train_recurrent_epoch(
+            model, train_loader, optimizer, criterion, device,
+            stop_flag=stop_flag)
 
         if progress_callback:
             progress_callback(make_progress_event(
@@ -192,10 +198,9 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None,
 
         check_cancelled(stop_flag)
 
-        model.eval()
-        with torch.no_grad():
-            val_output = model(X_val).reshape(-1, 1)
-            current_score = criterion(val_output, y_val).item()
+        current_score = evaluate_recurrent_loss(
+            model, val_loader, criterion, device,
+            stop_flag=stop_flag)
 
         if current_score < best_score:
             best_score = current_score
@@ -210,7 +215,7 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None,
 
         if (epoch + 1) % 10 == 0 and log_callback:
             log_callback(
-                f'[{name}] 第{epoch + 1}轮 损失={loss.item():.4f} '
+                f'[{name}] 第{epoch + 1}轮 损失={loss:.4f} '
                 f'验证损失={current_score:.4f}')
 
         if counter >= config.patience:

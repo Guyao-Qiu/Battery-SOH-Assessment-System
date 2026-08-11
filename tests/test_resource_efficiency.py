@@ -11,7 +11,6 @@ import torch
 import torch.nn as nn
 
 import core.adapters as adapters_module
-import core.train as train_module
 from core.adapters import CALCEAdapter
 from core.model_persistence import train_model_on_all_data
 from utils.config import TrainConfig
@@ -21,6 +20,7 @@ batching_module = (
     importlib.import_module("core.batching")
     if importlib.util.find_spec("core.batching") else None
 )
+train_module = importlib.import_module("core.train")
 
 
 def _csv_rows(cycles=4):

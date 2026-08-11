@@ -21,6 +21,21 @@ from .preprocess import filter_capacity_outliers
 from .validation import normalize_column_names, _read_data_file
 
 
+def _read_data_sort_date(path):
+    """Read only the first row needed to sort a CALCE source file."""
+    extension = os.path.splitext(path)[1].lower()
+    if extension == '.csv':
+        header = pd.read_csv(path, nrows=1)
+    elif extension == '.xlsx':
+        header = pd.read_excel(path, nrows=1)
+    else:
+        raise ValueError(f'不支持的数据文件格式: {extension}')
+    normalize_column_names(header)
+    if len(header) == 0 or 'Date_Time' not in header.columns:
+        raise ValueError('缺少可用于排序的 Date_Time 首行')
+    return header['Date_Time'].iloc[0]
+
+
 class BatteryDataAdapter(ABC):
     """电池数据适配器基类"""
 
@@ -269,11 +284,10 @@ class CALCEAdapter(BatteryDataAdapter):
             valid_path = []
             for p in file_list:
                 try:
-                    df = _read_data_file(p)
-                    normalize_column_names(df)
+                    sort_date = _read_data_sort_date(p)
                     if log_callback:
-                        log_callback(f'加载 {p} ...')
-                    dates.append(df['Date_Time'][0])
+                        log_callback(f'读取 {p} 的排序信息 ...')
+                    dates.append(sort_date)
                     valid_path.append(p)
                 except Exception as e:
                     if log_callback:
