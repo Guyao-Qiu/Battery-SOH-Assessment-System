@@ -1,0 +1,11 @@
+# Validated on CPython 3.10.20 / Windows 11 (2026-08-11).
+PyQt6==6.11.0
+numpy==1.26.4
+pandas==2.3.3
+matplotlib==3.10.9
+torch==2.1.0
+scikit-learn==1.7.2
+xgboost==3.0.2
+scipy==1.15.3
+joblib==1.5.3
+openpyxl==3.1.5

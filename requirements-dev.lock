@@ -1,0 +1,5 @@
+# Quality-gate tools; install together with requirements.lock.
+ruff==0.15.22
+bandit==1.9.4
+pip-audit==2.10.1
+coverage==7.15.2

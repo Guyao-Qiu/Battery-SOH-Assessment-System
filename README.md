@@ -60,7 +60,7 @@ Battery-SOH-Assessment-System/
 │   ├── tcp_server.py         # TCP 数据接入服务
 │   ├── tcp_display.py        # TCP 实时数据展示窗口
 │   ├── animated_button.py    # 动画按钮组件
-│   └── style.py              # Quantum Lab 暗色主题样式
+│   └── style.py              # 宣纸水墨主题样式
 ├── utils/
 │   ├── config.py             # 配置管理与持久化
 │   ├── icon_generator.py     # 图标生成
@@ -88,6 +88,8 @@ git clone https://github.com/your-username/Battery-SOH-Assessment-System.git
 cd Battery-SOH-Assessment-System
 pip install -r requirements.txt
 ```
+
+`requirements.txt` 会引用项目验证过的精确版本锁文件；开发与质量门禁工具另见 `requirements-dev.lock`。当前锁定组合以 Python 3.10 为基准。
 
 ### 启动应用
 
@@ -155,7 +157,7 @@ capacity = Σ(current × Δt / 3600)
 
 ## 许可证
 
-本项目仅供学习与研究所用。CALCE 数据集版权归马里兰大学 CALCE 电池研究中心所有。
+项目代码采用 [MIT License](LICENSE)。CALCE 数据集不包含在该代码许可证的授权范围内，其版权及使用条件归马里兰大学 CALCE 电池研究中心所有。
 
 ## 参考资料
 
