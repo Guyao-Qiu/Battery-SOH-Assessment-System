@@ -269,10 +269,8 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None,
 
     if n_seeds > 1 and log_callback:
         log_callback(
-            f"<span style='color:#FFD54F; font-weight:bold;'>"
             f'多种子评估：共 {n_seeds} 个种子 {seeds}，'
-            f'计算 95% 置信区间'
-            f'</span>')
+            f'计算 95% 置信区间')
 
     for i in range(len(battery_list)):
         check_cancelled(stop_flag)

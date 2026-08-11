@@ -7,6 +7,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from core.prediction import predict_capacity_batch
 from core.progress import make_progress_event
 from core.train import evaluate_prediction_protocols
+from utils.logger import setup_logger
 
 
 METRIC_LABELS = {
@@ -223,6 +224,7 @@ class PredictWorker(QThread):
             self.result_signal.emit(results, elapsed)
             self.finished_signal.emit()
         except Exception as e:
-            import traceback
-            self.error_signal.emit(f'{e}\n{traceback.format_exc()}')
+            setup_logger().exception('加载模型预测线程异常')
+            concise = str(e).splitlines()[0][:500]
+            self.error_signal.emit(f'预测失败：{concise}')
             self.finished_signal.emit()

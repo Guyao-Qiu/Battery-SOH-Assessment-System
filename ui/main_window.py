@@ -1016,9 +1016,9 @@ class MainWindow(QMainWindow):
     def append_log(self, text):
         cursor = self.log_text.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
-        text_with_br = text.replace('\n', '<br>')
-        cursor.insertHtml(text_with_br + '<br>')
-        self.logger.info(text)
+        cursor.insertText(str(text))
+        cursor.insertBlock()
+        self.logger.info(str(text))
 
     def _build_config(self):
         norm_map = {'额定容量归一化': 'rated', 'MinMax': 'minmax', 'ZScore': 'zscore'}
@@ -1561,9 +1561,15 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(message)
 
     def on_error(self, msg):
-        show_message(self, 'error', '错误', msg)
-        self.append_log('错误：' + msg)
-        self.logger.error(msg)
+        full_message = str(msg)
+        concise = next(
+            (line.strip() for line in full_message.splitlines()
+             if line.strip()),
+            '发生未知错误',
+        )[:500]
+        show_message(self, 'error', '错误', concise)
+        self.append_log('错误：' + concise)
+        self.logger.error(full_message)
         self._set_running_state(False, '评估遇到错误')
         self._show_result_state('评估未完成', '请根据弹窗或训练日志中的提示检查数据和参数。')
 

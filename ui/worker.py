@@ -7,6 +7,7 @@ from core.dataload import load_battery_from_paths
 from core.progress import make_progress_event
 from core.train import train
 from utils.config import TrainConfig
+from utils.logger import setup_logger
 
 
 class EvalWorker(QThread):
@@ -70,10 +71,8 @@ class EvalWorker(QThread):
                 seed=self.config.seed,
                 current=0, total=len(self.battery_list)))
             self.log_signal.emit(
-                f"<span style='color:#FFD54F; font-weight:bold;'>"
                 f'留一法验证：共 {len(self.battery_list)} 个电池，每次留 1 个作测试、其余训练，'
                 f'随机种子固定为 {self.config.seed}，确保结果可复现'
-                f'</span>'
             )
 
             results = train(
@@ -118,9 +117,7 @@ class EvalWorker(QThread):
                 'pearson': 'Pearson', 're': 'RE', 'all': '全部'
             }.get(self.config.metric, self.config.metric)
             self.log_signal.emit(
-                f"<span style='color:#FFD54F; font-weight:bold;'>"
                 f'各电池 {metric_name} 分数：'
-                f'</span>'
             )
             for name, result in results.items():
                 item = result['detail']
@@ -155,9 +152,7 @@ class EvalWorker(QThread):
                 }
                 hint = hint_map.get(self.config.metric, '')
                 if hint:
-                    self.log_signal.emit(
-                        "<span style='color:#FFD54F; font-weight:bold;'>"
-                        + hint + '</span>')
+                    self.log_signal.emit(hint)
             else:
                 self.log_signal.emit(f'平均 {metric_name}: 0.0000')
 
@@ -182,6 +177,7 @@ class EvalWorker(QThread):
                 self.log_signal.emit('训练已在安全检查点停止。')
                 self.finished_signal.emit()
                 return
-            import traceback
-            self.error_signal.emit(f'{e}\n{traceback.format_exc()}')
+            setup_logger().exception('评估工作线程异常')
+            concise = str(e).splitlines()[0][:500]
+            self.error_signal.emit(f'评估失败：{concise}')
             self.finished_signal.emit()
