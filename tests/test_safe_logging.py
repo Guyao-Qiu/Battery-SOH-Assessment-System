@@ -3,6 +3,7 @@ import os
 import unittest
 from unittest.mock import Mock, patch
 
+from battery_soh_app import concise_startup_error
 from ui.worker import EvalWorker
 from utils.config import TrainConfig
 
@@ -69,6 +70,20 @@ class WorkerErrorBoundaryTests(unittest.TestCase):
         self.assertIn("broken parser", errors[0])
         self.assertNotIn("Traceback", errors[0])
         logger.exception.assert_called_once()
+
+
+class StartupErrorBoundaryTests(unittest.TestCase):
+    def test_startup_dialog_message_omits_traceback_and_local_paths(self):
+        error = RuntimeError(
+            "模块损坏\nTraceback (most recent call last):\n"
+            '  File "C:/private/project/bootstrap.py", line 10'
+        )
+
+        message = concise_startup_error(error)
+
+        self.assertIn("模块损坏", message)
+        self.assertNotIn("Traceback", message)
+        self.assertNotIn("C:/private", message)
 
 
 if __name__ == "__main__":
