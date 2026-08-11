@@ -45,6 +45,31 @@ class ProjectPathTests(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 save_config({"mode": "RNN"})
 
+    def test_main_window_reports_config_save_failure(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PyQt6.QtWidgets import QApplication
+        from ui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        try:
+            with patch(
+                    "ui.main_window.save_config",
+                    side_effect=PermissionError("denied")), \
+                    patch("ui.main_window.show_message") as message, \
+                    patch.object(window.logger, "error") as log_error:
+                try:
+                    saved = window._save_persisted_config()
+                except PermissionError as error:
+                    self.fail(f"save failure escaped the UI handler: {error}")
+
+            self.assertFalse(saved)
+            message.assert_called_once()
+            log_error.assert_called_once()
+        finally:
+            window.deleteLater()
+            app.processEvents()
+
 
 class ProgressContractTests(unittest.TestCase):
     def test_rnn_training_reports_battery_seed_epoch_and_elapsed(self):
