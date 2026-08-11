@@ -1021,8 +1021,18 @@ class MainWindow(QMainWindow):
         if len(self.imported_paths) == 0:
             show_message(self, 'warning', '提示', '请先导入文件或文件夹。')
             return
-        if self.rated_capacity_spin.value() <= 0:
-            show_message(self, 'warning', '提示', '额定容量必须大于0。')
+        config = self._build_config()
+        from core.validation import validate_evaluation_request
+        errors = validate_evaluation_request(
+            config, self.imported_paths, log_callback=self.append_log)
+        if errors:
+            visible_errors = errors[:10]
+            suffix = (
+                f'\n……另有 {len(errors) - 10} 项错误'
+                if len(errors) > 10 else '')
+            show_message(
+                self, 'warning', '数据校验未通过',
+                '\n'.join(f'• {error}' for error in visible_errors) + suffix)
             return
 
         if self.loaded_model is not None:
