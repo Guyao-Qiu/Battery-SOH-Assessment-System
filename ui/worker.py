@@ -1,3 +1,4 @@
+from copy import deepcopy
 import time
 import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
@@ -17,8 +18,8 @@ class EvalWorker(QThread):
 
     def __init__(self, config, imported_paths, parent=None):
         super().__init__(parent)
-        self.config = config
-        self.imported_paths = imported_paths
+        self.config = deepcopy(config)
+        self.imported_paths = tuple(deepcopy(imported_paths))
         self._stop_requested = False
         self.battery_dict = {}
         self.battery_list = []

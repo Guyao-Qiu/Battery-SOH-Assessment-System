@@ -1,3 +1,4 @@
+from copy import deepcopy
 import time
 import numpy as np
 
@@ -73,10 +74,10 @@ class PredictWorker(QThread):
         super().__init__(parent)
         self._model = model
         self._metadata = metadata
-        self.imported_paths = imported_paths
+        self.imported_paths = tuple(deepcopy(imported_paths))
         self.battery_dict = {}
         self.battery_list = []
-        self.config = config
+        self.config = deepcopy(config)
         self._stop_requested = False
 
     def request_stop(self):

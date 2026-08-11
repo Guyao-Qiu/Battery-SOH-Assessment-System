@@ -9,6 +9,7 @@ from unittest.mock import patch
 import numpy as np
 
 from core.preprocess import get_train_test
+from core.run_snapshot import RunSnapshot
 from core.train import train
 from models.RF import train_rf
 from models.XGBoost import train_xgboost
@@ -198,6 +199,14 @@ class PredictionProtocolTests(unittest.TestCase):
         window = MainWindow()
         window._eval_rated_capacity = 1.0
         window._eval_threshold_ratio = 0.8
+        window._active_run_snapshot = RunSnapshot.capture(
+            SimpleNamespace(to_dict=lambda: {
+                "rated_capacity": 1.0,
+                "threshold_ratio": 0.8,
+            }),
+            ["cell.csv"],
+            run_id="ui-failure-cycle-test",
+        )
         window.worker = SimpleNamespace(
             battery_list=["cell"],
             battery_dict={"cell": {"capacity": np.asarray(

@@ -5,7 +5,6 @@ import json
 import glob
 import logging
 
-import pandas as pd
 import torch
 import numpy as np
 
@@ -31,6 +30,13 @@ from utils.config import (
 from utils.logger import setup_logger
 from utils.icon_generator import get_app_icon, get_dialog_icon, show_message
 from core.adapters import get_adapter_list
+from core.report_export import (
+    ExportCancelled,
+    ReportExportError,
+    atomic_save_figure,
+    export_run_report,
+)
+from core.run_snapshot import RunSnapshot
 # ── JSON 配置导入映射 ──────────────────────────────────────
 
 def _map_metric(val):
@@ -208,6 +214,8 @@ class MainWindow(QMainWindow):
         self._eval_threshold_ratio = 0.8
         self.battery_dict = {}
         self.battery_list = []
+        self._active_run_snapshot = None
+        self._last_run_snapshot = None
 
         self.loaded_model = None
         self.loaded_metadata = None
@@ -1060,12 +1068,16 @@ class MainWindow(QMainWindow):
             return
 
         if self.loaded_model is not None:
-            self._run_prediction()
+            self._run_prediction(config)
         else:
-            self._run_training()
+            self._run_training(config)
 
-    def _run_training(self):
-        config = self._build_config()
+    def _run_training(self, config):
+        self._active_run_snapshot = RunSnapshot.capture(
+            config, self.imported_paths)
+        config = TrainConfig.from_dict(
+            self._active_run_snapshot.config_dict())
+        imported_paths = self._active_run_snapshot.imported_paths
         self._eval_rated_capacity = config.rated_capacity
         self._eval_threshold_ratio = config.threshold_ratio
 
@@ -1076,7 +1088,7 @@ class MainWindow(QMainWindow):
         self._set_running_state(True, '正在训练模型')
         self.logger.info(f'开始评估，配置：{config}')
 
-        self.worker = EvalWorker(config, self.imported_paths)
+        self.worker = EvalWorker(config, imported_paths)
         self.worker.log_signal.connect(self.append_log)
         self.worker.error_signal.connect(self.on_error)
         self.worker.result_signal.connect(self.on_result)
@@ -1084,13 +1096,17 @@ class MainWindow(QMainWindow):
         self.worker.final_model_signal.connect(self.on_final_model_ready)
         self.worker.start()
 
-    def _run_prediction(self):
-        config = self._build_config()
+    def _run_prediction(self, config):
         config.window_size = self.loaded_metadata['window_size']
         if 'rated_capacity' in self.loaded_metadata:
             config.rated_capacity = self.loaded_metadata['rated_capacity']
         if 'threshold_ratio' in self.loaded_metadata:
             config.threshold_ratio = self.loaded_metadata['threshold_ratio']
+        self._active_run_snapshot = RunSnapshot.capture(
+            config, self.imported_paths)
+        config = TrainConfig.from_dict(
+            self._active_run_snapshot.config_dict())
+        imported_paths = self._active_run_snapshot.imported_paths
         self._eval_rated_capacity = config.rated_capacity
         self._eval_threshold_ratio = config.threshold_ratio
 
@@ -1103,7 +1119,7 @@ class MainWindow(QMainWindow):
         from ui.predict_worker import PredictWorker
         self.worker = PredictWorker(
             self.loaded_model, self.loaded_metadata,
-            self.imported_paths, config
+            imported_paths, config
         )
         self.worker.log_signal.connect(self.append_log)
         self.worker.error_signal.connect(self.on_error)
@@ -1307,63 +1323,64 @@ class MainWindow(QMainWindow):
 
     def save_chart(self):
         file_path, _ = QFileDialog.getSaveFileName(self, '保存图表', 'outputs/figures/', 'PNG 图片 (*.png);;JPG 图片 (*.jpg);;PDF 文件 (*.pdf)')
-        if file_path:
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            self.canvas.save_figure(file_path)
-            show_message(self, 'success', '提示', '图表已保存。',
-                         buttons=QMessageBox.StandardButton.Ok,
-                         default=QMessageBox.StandardButton.Ok)
+        if not file_path:
+            return
+        if os.path.exists(file_path):
+            answer = QMessageBox.question(
+                self, '确认覆盖',
+                f'文件已存在：\n{file_path}\n\n是否覆盖？',
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        try:
+            atomic_save_figure(self.canvas, file_path)
+        except ReportExportError as error:
+            show_message(self, 'error', '图表保存失败', str(error))
+            return
+        show_message(self, 'success', '提示', '图表已保存。',
+                     buttons=QMessageBox.StandardButton.Ok,
+                     default=QMessageBox.StandardButton.Ok)
 
 
     def export_report(self):
-        if not hasattr(self, '_last_detail') or not self._last_detail:
+        snapshot = self._last_run_snapshot
+        if snapshot is None or not snapshot.results:
             show_message(self, 'warning', '提示', '请先完成一次训练评估。')
             return
 
-        os.makedirs('outputs/reports', exist_ok=True)
-        os.makedirs('outputs/figures', exist_ok=True)
+        def confirm_overwrite(paths):
+            path_text = '\n'.join(str(path) for path in paths)
+            answer = QMessageBox.question(
+                self, '确认覆盖已有报告',
+                f'以下文件已存在：\n{path_text}\n\n是否覆盖？',
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            return answer == QMessageBox.StandardButton.Yes
 
-        config = self._build_config()
-        config_dict = config.to_dict()
+        try:
+            artifacts = export_run_report(
+                snapshot,
+                self.canvas,
+                confirm_overwrite=confirm_overwrite,
+            )
+        except ExportCancelled:
+            show_message(self, 'info', '已取消', '未覆盖已有报告。')
+            return
+        except ReportExportError as error:
+            show_message(self, 'error', '报告导出失败', str(error))
+            return
 
-        with open('outputs/reports/report.json', 'w', encoding='utf-8') as f:
-            json.dump(config_dict, f, ensure_ascii=False, indent=4)
-
-        # 展平 detail 用于 Excel 导出（ci 字典展开为多列）
-        export_rows = []
-        for item in self._last_detail:
-            row = {
-                'battery': item.get('battery'),
-                'cycles': item.get('cycles'),
-                'model': item.get('model'),
-                'rmse': item.get('rmse'),
-                'mae': item.get('mae'),
-                'r2': item.get('r2'),
-                'pearson': item.get('pearson'),
-                're': item.get('re'),
-                'n_seeds': item.get('n_seeds', 1),
-                'failure_cycle': item.get('failure_cycle'),
-                'threshold': item.get('threshold'),
-            }
-            ci = item.get('ci', {})
-            for key in ('rmse', 'mae', 'r2', 'pearson', 're'):
-                if key in ci:
-                    c = ci[key]
-                    row[f'{key}_mean'] = c['mean']
-                    row[f'{key}_std'] = c['std']
-                    row[f'{key}_ci_lower'] = c['lower']
-                    row[f'{key}_ci_upper'] = c['upper']
-            export_rows.append(row)
-        df = pd.DataFrame(export_rows)
-        df.to_excel('outputs/reports/评估结果.xlsx', index=False)
-
-        self.canvas.save_figure('outputs/figures/评估结果.png')
-
-        show_message(self, 'success', '提示',
-            '报告已导出至 outputs/reports/ 目录：\n'
-            '- report.json（参数配置）\n'
+        show_message(
+            self, 'success', '提示',
+            f'报告已导出至：\n{artifacts["run_directory"]}\n\n'
+            '- report.json（运行快照、参数与结果）\n'
             '- 评估结果.xlsx（评估指标）\n'
-            '- outputs/figures/评估结果.png（预测图表）',
+            '- 评估结果.png（预测图表）',
             buttons=QMessageBox.StandardButton.Ok,
             default=QMessageBox.StandardButton.Ok)
 
@@ -1496,24 +1513,8 @@ class MainWindow(QMainWindow):
         self.worker = None
 
     def on_result(self, results, elapsed):
-        self._last_results = results
-        self._last_score = [
-            [result['score']] for result in results.values()
-        ]
-        self._last_pred = {
-            name: result['prediction'] for name, result in results.items()
-        }
-        self._last_detail = [
-            result['detail'] for result in results.values()
-        ]
-        self._last_elapsed = elapsed
-
-        self.battery_list = list(results)
-        self.battery_dict = {
-            name: self.worker.battery_dict[name]
-            for name in self.battery_list
-            if name in self.worker.battery_dict
-        }
+        if self._active_run_snapshot is None:
+            raise RuntimeError('评估结果缺少对应的运行快照')
 
         threshold = self._eval_rated_capacity * self._eval_threshold_ratio
         for name, result in results.items():
@@ -1534,6 +1535,29 @@ class MainWindow(QMainWindow):
                     break
             item['failure_cycle'] = failure_cycle
             item['threshold'] = threshold
+
+        self._last_run_snapshot = self._active_run_snapshot.with_results(
+            results, elapsed_seconds=elapsed)
+        self._active_run_snapshot = None
+        results = self._last_run_snapshot.results_dict()
+        self._last_results = results
+        self._last_score = [
+            [result['score']] for result in results.values()
+        ]
+        self._last_pred = {
+            name: result['prediction'] for name, result in results.items()
+        }
+        self._last_detail = [
+            result['detail'] for result in results.values()
+        ]
+        self._last_elapsed = elapsed
+
+        self.battery_list = list(results)
+        self.battery_dict = {
+            name: self.worker.battery_dict[name]
+            for name in self.battery_list
+            if name in self.worker.battery_dict
+        }
 
         self.update_result_table(self._last_detail, elapsed)
         self.canvas.plot_results(self.battery_list, self.battery_dict, self._last_pred,
