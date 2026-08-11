@@ -216,12 +216,12 @@ D:\Anaconda3\envs\pytorch\python.exe -m pip check
 
 ### P1-11 数据校验没有接入主流程
 
-- [ ] 导入后或启动前调用统一验证器。
-- [ ] 校验电压上限大于下限、三个工步不冲突、额定容量和阈值合理。
-- [ ] 校验每块电池数据长度大于窗口要求，而不是仅检查至少 3 个循环。
-- [ ] 校验列唯一性、数值有限性、时间单调性、循环顺序、电流方向和容量合理区间。
-- [ ] 为 CSV/XLSX/MAT 设置文件大小、行列数、sheet数量和结构深度限制。
-- [ ] NASA `.mat` 使用独立校验器，不能套用 CALCE 表格列检查。
+- [x] 导入后或启动前调用统一验证器。
+- [x] 校验电压上限大于下限、三个工步不冲突、额定容量和阈值合理。
+- [x] 校验每块电池数据长度大于窗口要求，而不是仅检查至少 3 个循环。
+- [x] 校验列唯一性、数值有限性、时间单调性、循环顺序、电流方向和容量合理区间。
+- [x] 为 CSV/XLSX/MAT 设置文件大小、行列数、sheet数量和结构深度限制。
+- [x] NASA `.mat` 使用独立校验器，不能套用 CALCE 表格列检查。
 
 证据：
 
@@ -230,12 +230,12 @@ D:\Anaconda3\envs\pytorch\python.exe -m pip check
 
 ### P1-12 异常值清洗会删除稳定段并丢失循环编号
 
-- [ ] `sigma≈0` 的窗口保留全部有限值。
-- [ ] 明确边界点是否保留，避免严格不等号误删。
-- [ ] 保留原始 `Cycle_Index`，不得用 `linspace` 重新编号。
-- [ ] 输出剔除掩码、数量和原因，便于审计。
-- [ ] 对电池退化膝点建立保护或提供关闭清洗的选项。
-- [ ] 修正 CCCT/CVCT 与有效放电循环的对齐关系。
+- [x] `sigma≈0` 的窗口保留全部有限值。
+- [x] 明确边界点是否保留，避免严格不等号误删。
+- [x] 保留原始 `Cycle_Index`，不得用 `linspace` 重新编号。
+- [x] 输出剔除掩码、数量和原因，便于审计。
+- [x] 对电池退化膝点建立保护或提供关闭清洗的选项。
+- [x] 修正 CCCT/CVCT 与有效放电循环的对齐关系。
 
 证据：
 
@@ -244,11 +244,11 @@ D:\Anaconda3\envs\pytorch\python.exe -m pip check
 
 ### P1-13 强制终止线程和关闭流程不安全
 
-- [ ] 删除 `QThread.terminate()`。
-- [ ] 使用 `request_stop()`、`requestInterruption()`、安全检查点和有限等待。
-- [ ] 数据读取、epoch、树批次和最终模型训练均检查停止状态。
-- [ ] 停止期间禁止开始新的训练、加载/保存模型或导出混合状态报告。
-- [ ] 主窗口关闭时依次停止训练线程和 TCP 线程；超时要提示而不是假装已经停止。
+- [x] 删除 `QThread.terminate()`。
+- [x] 使用 `request_stop()`、`requestInterruption()`、安全检查点和有限等待。
+- [x] 数据读取、epoch、树批次和最终模型训练均检查停止状态。
+- [x] 停止期间禁止开始新的训练、加载/保存模型或导出混合状态报告。
+- [ ] 主窗口关闭时依次停止训练线程和 TCP 线程；超时要提示而不是假装已经停止。（非 TCP 的训练线程关闭流程已修复；TCP 部分按用户要求跳过）
 
 证据：
 
@@ -260,9 +260,9 @@ D:\Anaconda3\envs\pytorch\python.exe -m pip check
 
 ### P1-14 跳过电池时结果可能错位
 
-- [ ] 训练结果改为以电池名称为键的结构，不再依赖多个列表的相同下标。
-- [ ] `battery_list` 只记录实际成功加载的数据。
-- [ ] 被跳过电池应显示原因，不能把后一块电池的预测画到前一块上。
+- [x] 训练结果改为以电池名称为键的结构，不再依赖多个列表的相同下标。
+- [x] `battery_list` 只记录实际成功加载的数据。
+- [x] 被跳过电池应显示原因，不能把后一块电池的预测画到前一块上。
 
 证据：
 
@@ -272,12 +272,12 @@ D:\Anaconda3\envs\pytorch\python.exe -m pip check
 
 ### P1-15 报告可能混用参数并静默覆盖旧结果
 
-- [ ] 启动时深拷贝路径和配置，保存不可变 `RunSnapshot`。
-- [ ] 报告从运行快照导出，不从当前 UI 重新读取参数。
-- [ ] 运行期间冻结会影响结果的导入、删除、参数和模型控件。
-- [ ] 默认创建带时间戳或运行 ID 的目录。
-- [ ] 覆盖已有文件前确认；JSON、Excel和图片采用临时文件后原子替换。
-- [ ] 捕获文件占用、权限不足和磁盘空间错误，显示可执行的恢复建议。
+- [x] 启动时深拷贝路径和配置，保存不可变 `RunSnapshot`。
+- [x] 报告从运行快照导出，不从当前 UI 重新读取参数。
+- [x] 运行期间冻结会影响结果的导入、删除、参数和模型控件。
+- [x] 默认创建带时间戳或运行 ID 的目录。
+- [x] 覆盖已有文件前确认；JSON、Excel和图片采用临时文件后原子替换。
+- [x] 捕获文件占用、权限不足和磁盘空间错误，显示可执行的恢复建议。
 
 证据：`ui/main_window.py:781-790`、`ui/main_window.py:1203-1280`
 
@@ -400,11 +400,11 @@ Codex 每完成一项，在此更新状态并记录验证证据：
 | P1-08 | 已修复 | `core/model_persistence.py`、`ui/main_window.py` | `tests/test_model_loading_security.py`、`tests/test_model_artifact_smoke.py` | 破损、缺键、伪后缀、超大、元数据错配、默认拒绝 pickle/joblib 与五模型往返通过 | joblib 仅在用户明确确认后加载；旧 PyTorch 混合格式默认拒绝 |
 | P1-09 | 已修复 | `core/model_persistence.py`、`core/prediction.py`、`ui/main_window.py` | `tests/test_model_session.py`、`tests/test_model_artifact_smoke.py` | 原子替换、失败保留旧状态、CPU 回落、卸载切回训练与完整元数据通过 | CUDA 硬件兼容性仍按独立门禁执行 |
 | P1-10 | 已修复 | `core/model_persistence.py` | `tests/test_final_model_training.py`、`tests/test_model_artifact_smoke.py` | RNN/XGBoost/RF 最终拟合均包含全部有效电池；五模型真实小样本链路通过 | 验证集只选择 epoch/树数，最终 scaler 也在全量训练数据上重拟合 |
-| P1-11 | 待修复 |  |  |  |  |
-| P1-12 | 待修复 |  |  |  |  |
-| P1-13 | 待修复 |  |  |  |  |
-| P1-14 | 待修复 |  |  |  |  |
-| P1-15 | 待修复 |  |  |  |  |
+| P1-11 | 已修复 | `core/validation.py`、`ui/main_window.py` | `tests/test_data_validation.py` | 配置、CALCE/NASA结构、逐电池窗口长度及资源上限校验通过 | 启动评估前统一拦截 |
+| P1-12 | 已修复 | `core/preprocess.py`、`core/adapters.py` | `tests/test_outlier_audit.py` | 稳定段、边界、非有限值、膝点、原始循环编号和充电特征对齐测试通过 | 清洗结果附带可审计掩码和原因 |
+| P1-13 | 部分修复（TCP跳过） | `core/cancellation.py`、`core/train.py`、`core/model_persistence.py`、`models/`、`ui/worker.py`、`ui/predict_worker.py`、`ui/main_window.py` | `tests/test_cooperative_stop.py` | 文件加载、RNN、RF/XGB、最终训练与窗口关闭的非 TCP 停止流程通过 | TCP 停止与关闭流程按用户要求未修改 |
+| P1-14 | 已修复 | `core/adapters.py`、`core/train.py`、`ui/worker.py`、`ui/predict_worker.py`、`ui/main_window.py`、`ui/chart_show.py` | `tests/test_named_results.py` | 无效/短电池跳过后，加载、预测、详情与图表均按电池名称对应 | 重复电池名称会记录跳过原因 |
+| P1-15 | 已修复 | `core/run_snapshot.py`、`core/report_export.py`、`ui/main_window.py`、`ui/worker.py`、`ui/predict_worker.py` | `tests/test_run_snapshot_export.py`、`tests/test_cooperative_stop.py` | 不可变快照、运行期控件冻结、运行 ID 目录、覆盖确认、原子导出与错误恢复测试通过 | 报告不再读取导出时的实时 UI 参数 |
 
 ## 推荐执行顺序摘要
 
