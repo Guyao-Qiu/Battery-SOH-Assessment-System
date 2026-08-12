@@ -111,6 +111,25 @@ class Phase5GoldenDatasetTests(unittest.TestCase):
         self.assertTrue(any("跳过" in line and "corrupt" in line
                             for line in logs))
 
+    def test_folder_with_valid_corrupt_file_and_empty_subfolder_still_loads(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "mixed_cell"
+            root.mkdir()
+            _calce_rows().to_csv(root / "valid.csv", index=False)
+            (root / "corrupt.csv").write_bytes(b"\xff\x00not-a-table")
+            (root / "empty").mkdir()
+            logs = []
+
+            batteries, names = CALCEAdapter().load_battery_data(
+                [str(root)], 3.8, 3.4, 2, 4, 7,
+                log_callback=logs.append, stop_flag=lambda: False)
+
+        self.assertEqual(names, ["mixed_cell"])
+        self.assertEqual(list(batteries), ["mixed_cell"])
+        self.assertEqual(len(batteries["mixed_cell"]), 5)
+        self.assertTrue(any("跳过" in line and "corrupt" in line
+                            for line in logs))
+
     def test_actual_workbook_sheet_limit_is_rejected_before_data_loading(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "many-sheets.xlsx"

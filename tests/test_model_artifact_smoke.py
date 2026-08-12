@@ -43,6 +43,8 @@ class ModelArtifactSmokeTests(unittest.TestCase):
                     )
                     model, metadata = train_model_on_all_data(
                         config, battery_dict, names)
+                    expected = predict_capacity_batch(
+                        model, metadata, [[1.02, 1.00]])
                     suffix = ".pt" if mode in ("RNN", "GRU", "LSTM") else ".joblib"
                     path = Path(temp_dir) / f"{mode}{suffix}"
                     save_model(model, metadata, str(path))
@@ -56,6 +58,8 @@ class ModelArtifactSmokeTests(unittest.TestCase):
                         loaded_metadata["final_training_sample_count"], 12)
                     self.assertEqual(prediction.shape, (1,))
                     self.assertTrue(np.isfinite(prediction[0]))
+                    np.testing.assert_allclose(
+                        prediction, expected, rtol=1e-6, atol=1e-6)
 
 
 if __name__ == "__main__":
