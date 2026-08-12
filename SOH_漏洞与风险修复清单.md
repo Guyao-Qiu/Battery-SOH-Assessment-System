@@ -322,31 +322,31 @@ D:\Anaconda3\envs\pytorch\python.exe -m pip check
 
 ### 单元测试
 
-- [ ] 严格留一法数据隔离和训练/验证/测试边界。
-- [ ] `drop_outlier()`：常数窗口、边界值、NaN/Inf、真实退化膝点。
-- [ ] `relative_error()`：正常交叉、无交叉、多次交叉、初始失效、截尾数据。
-- [ ] 五种指标：空序列、短序列、常数序列和非法数值。
-- [ ] 三种 scaler 的 fit/transform/inverse_transform 和序列化。
-- [ ] 五种模型名称与全部配置字段的 round-trip。
+- [x] 严格留一法数据隔离和训练/验证/测试边界。
+- [x] `drop_outlier()`：常数窗口、边界值、NaN/Inf、真实退化膝点。
+- [x] `relative_error()`：正常交叉、无交叉、多次交叉、初始失效、截尾数据。
+- [x] 五种指标：空序列、短序列、常数序列和非法数值。
+- [x] 三种 scaler 的 fit/transform/inverse_transform 和序列化。
+- [x] 五种模型名称与全部配置字段的 round-trip。
 
 ### 数据集成测试
 
-- [ ] CALCE 最小黄金 Excel/CSV 样本。
-- [ ] NASA 最小黄金 MAT 样本。
-- [ ] 损坏文件、缺列、重复列、错误工步、时间倒序、超大文件。
-- [ ] 文件夹中混合有效文件、无效文件和空目录。
-- [ ] 短电池被跳过后结果仍与正确电池名称对应。
+- [x] CALCE 最小黄金 Excel/CSV 样本。
+- [x] NASA 最小黄金 MAT 样本。
+- [x] 损坏文件、缺列、重复列、错误工步、时间倒序、超大文件。
+- [x] 文件夹中混合有效文件、无效文件和空目录。
+- [x] 短电池被跳过后结果仍与正确电池名称对应。
 
 ### 模型测试
 
-- [ ] 五种模型最小数据 smoke test。
-- [ ] 保存—加载—预测一致性。
-- [ ] 缺失/损坏/版本不兼容元数据。
-- [ ] CPU保存、CPU加载、GPU加载和无 GPU 回退。
-- [ ] 最终模型训练包含全部有效电池。
-- [ ] 不可信或伪造模型被安全拒绝。
+- [x] 五种模型最小数据 smoke test。
+- [x] 保存—加载—预测一致性。
+- [x] 缺失/损坏/版本不兼容元数据。
+- [x] CPU保存、CPU加载、GPU加载和无 GPU 回退。
+- [x] 最终模型训练包含全部有效电池。
+- [x] 不可信或伪造模型被安全拒绝。
 
-### TCP 测试
+### TCP 测试（用户明确要求跳过，未执行）
 
 - [ ] 本机默认绑定和显式局域网模式。
 - [ ] 正常消息、reset、断线重连、端口冲突。
@@ -357,12 +357,12 @@ D:\Anaconda3\envs\pytorch\python.exe -m pip check
 
 ### PyQt 集成与端到端测试
 
-- [ ] 实际创建窗口和控件，不只搜索源码字符串。
-- [ ] 导入数据 → 选择模型 → 训练 → 查看结果 → 导出报告。
-- [ ] 加载模型 → 选择任意指标 → 批量预测。
-- [ ] 加载模型 → TCP 接入 → 全屏图表 → 安全断开。
-- [ ] 训练中停止、关闭窗口、文件被占用和错误恢复。
-- [ ] 键盘导航、焦点可见、缩放字体和高 DPI。
+- [x] 实际创建窗口和控件，不只搜索源码字符串。
+- [x] 导入数据 → 选择模型 → 训练 → 查看结果 → 导出报告。
+- [x] 加载模型 → 选择任意指标 → 批量预测。
+- [ ] 加载模型 → TCP 接入 → 全屏图表 → 安全断开。（用户明确要求跳过，未执行）
+- [x] 训练中停止、关闭窗口、文件被占用和错误恢复。
+- [x] 键盘导航、焦点可见、缩放字体和高 DPI。
 
 ## 推荐 CI 门禁
 
@@ -406,6 +406,7 @@ Codex 每完成一项，在此更新状态并记录验证证据：
 | P1-14 | 已修复 | `core/adapters.py`、`core/train.py`、`ui/worker.py`、`ui/predict_worker.py`、`ui/main_window.py`、`ui/chart_show.py` | `tests/test_named_results.py` | 无效/短电池跳过后，加载、预测、详情与图表均按电池名称对应 | 重复电池名称会记录跳过原因 |
 | P1-15 | 已修复 | `core/run_snapshot.py`、`core/report_export.py`、`ui/main_window.py`、`ui/worker.py`、`ui/predict_worker.py` | `tests/test_run_snapshot_export.py`、`tests/test_cooperative_stop.py` | 不可变快照、运行期控件冻结、运行 ID 目录、覆盖确认、原子导出与错误恢复测试通过 | 报告不再读取导出时的实时 UI 参数 |
 | P2-阶段4 | 已完成（TCP 项跳过） | `core/`、`ui/`、`utils/`、`README.md`、依赖锁和 CI | `tests/test_metric_semantics.py`、`tests/test_config_paths_progress.py`、`tests/test_resource_efficiency.py`、`tests/test_safe_logging.py`、`tests/test_engineering_hygiene.py`、`tests/test_benchmark_manifest.py` | 118 项回归目标、Ruff、Bandit、pip-audit、两级覆盖率和 CUDA 实测门禁 | TCP 缓冲与 TCP 2000 步频控按用户要求未修改 |
+| P2-阶段5 | 已完成（TCP 项跳过） | `core/evaluate.py`、`core/adapters.py`、阶段 5 测试与测试计划 | `tests/test_phase5_edge_cases.py`、`tests/test_phase5_dataset_integration.py`、`tests/test_phase5_ui_workflows.py`、`tests/test_phase5_model_devices.py`、`tests/test_phase5_ui_accessibility.py` | 135 项非 TCP 回归通过；总覆盖率 64%，关键模块门禁 92%；Ruff、Bandit、pip check、pip-audit、CPU/CUDA 与真实 PyQt 流程通过 | 修复退化指标输入和 NASA MAT 校验/加载不一致；所有 TCP 测试按用户要求未执行 |
 
 ## 推荐执行顺序摘要
 
