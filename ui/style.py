@@ -6,6 +6,8 @@
 - 统一细描边、清晰焦点、克制墨晕反馈
 """
 
+from pathlib import Path
+
 DESIGN_LANGUAGE = '宣纸水墨'
 
 # ── 调色板 ──────────────────────────────────────────────────
@@ -27,6 +29,8 @@ COLORS = {
     'primary_d':   '#244743',   # 深黛
     'primary_l':   '#52766E',   # 浅黛
     'on_accent':   '#FFF9ED',   # 黛青表面上的文字
+    'spin_selection': '#76563A',  # 赭褐：数字滚轮选中态
+    'on_selection': '#FFF9ED',    # 赭褐表面上的暖白文字
     'success':     '#4F6B4F',   # 竹青
     'success_l':   '#3F6045',
     'warning':     '#98652E',   # 赭石
@@ -35,6 +39,11 @@ COLORS = {
     'on_danger':   '#FFF9ED',
     'shadow':      'rgba(32, 39, 36, 0.14)',
 }
+
+COMBO_DOWN_ARROW_URL = (
+    Path(__file__).resolve().parents[1] / 'assets' / 'icons' /
+    'combo-down-arrow.svg'
+).as_posix()
 
 
 # ── 字体族 ──────────────────────────────────────────────────
@@ -257,13 +266,17 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
     border-color: {COLORS['primary']};
     background: #FFFDF7;
 }}
+QSpinBox, QDoubleSpinBox {{
+    selection-background-color: {COLORS['spin_selection']};
+    selection-color: {COLORS['on_selection']};
+}}
 QSpinBox::up-button, QSpinBox::down-button,
 QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
     width: 0; height: 0; border: 0;
 }}
 QComboBox::drop-down {{
     border: none;
-    width: 18px;
+    width: 22px;
 }}
 QComboBox QAbstractItemView {{
     {_font(10)}
@@ -275,11 +288,9 @@ QComboBox QAbstractItemView {{
     padding: 4px;
 }}
 QComboBox::down-arrow {{
-    image: none;
-    width: 0; height: 0;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid {COLORS['primary']};
+    image: url("{COMBO_DOWN_ARROW_URL}");
+    width: 12px;
+    height: 8px;
     margin-right: 6px;
 }}
 
