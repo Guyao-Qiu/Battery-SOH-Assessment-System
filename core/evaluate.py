@@ -57,6 +57,8 @@ def calc_mae(y_test, y_predict):
 
 def calc_r2(y_test, y_predict):
     """决定系数 R²"""
+    if len(y_test) < 2:
+        return 0.0
     return r2_score(y_test, y_predict)
 
 
@@ -75,6 +77,14 @@ def calc_pearson(y_test, y_predict):
 
 def calc_all_metrics(y_test, y_predict, rated_capacity=None, threshold_ratio=None):
     """一次性计算全部指标，返回 dict"""
+    y_test = np.asarray(y_test, dtype=np.float64).reshape(-1)
+    y_predict = np.asarray(y_predict, dtype=np.float64).reshape(-1)
+    if len(y_test) == 0 or len(y_predict) == 0:
+        raise ValueError('真实值和预测值必须为非空序列')
+    if len(y_test) != len(y_predict):
+        raise ValueError('真实值和预测值长度必须一致')
+    if not np.all(np.isfinite(y_test)) or not np.all(np.isfinite(y_predict)):
+        raise ValueError('真实值和预测值必须全部为有限数值')
     metrics = {
         'rmse': evaluation(y_test, y_predict),
         'mae': calc_mae(y_test, y_predict),
