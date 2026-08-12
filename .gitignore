@@ -38,3 +38,6 @@ desktop.ini
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Local environment probes
+test.py
