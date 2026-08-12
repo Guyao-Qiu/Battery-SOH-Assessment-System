@@ -210,7 +210,7 @@ class CollapsibleSection(QFrame):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('电池 SOH 评估系统')
+        self.setWindowTitle('Battery SOH Assessment System')
         self.setWindowIcon(get_app_icon())
         self.resize(1600, 900)
         self.setMinimumSize(1180, 700)

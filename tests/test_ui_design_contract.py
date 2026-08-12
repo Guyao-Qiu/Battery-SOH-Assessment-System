@@ -31,6 +31,16 @@ class UiDesignContractTests(unittest.TestCase):
         cls.style = (ROOT / "ui" / "style.py").read_text(encoding="utf-8")
         cls.chart = (ROOT / "ui" / "chart_show.py").read_text(encoding="utf-8")
         cls.button = (ROOT / "ui" / "animated_button.py").read_text(encoding="utf-8")
+        cls.readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    def test_project_name_is_consistent_in_window_and_readme(self):
+        project_name = 'Battery SOH Assessment System'
+        self.assertIn(f"self.setWindowTitle('{project_name}')", self.main_window)
+        self.assertTrue(self.readme.startswith(f'# {project_name}\n'))
+        self.assertIn(
+            'github.com/Guyao-Qiu/Battery-SOH-Assessment-System.git',
+            self.readme,
+        )
 
     def test_parameters_are_grouped_and_advanced_section_is_collapsible(self):
         self.assertIn("class CollapsibleSection", self.main_window)

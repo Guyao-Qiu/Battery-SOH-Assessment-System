@@ -142,6 +142,7 @@ if __name__ == '__main__':
     # ── 阶段 1：立即创建 QApplication 并显示闪屏（目标 < 3秒）──
     # 注意：不在此处导入 utils/torch 等重模块，确保闪屏秒开
     app = QApplication(sys.argv)
+    app.setApplicationDisplayName('Battery SOH Assessment System')
     app.setWindowIcon(_get_icon())
 
     # 立即显示启动闪屏

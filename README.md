@@ -1,8 +1,11 @@
-# 电池 SOH 评估系统
+# Battery SOH Assessment System
 
-> Battery State-of-Health Assessment System
+> 电池健康状态评估系统
 
 基于马里兰大学 CALCE 锂电池充放电数据集，采用 PyQt6 设计 UI 界面，利用 RNN/GRU/LSTM 及 XGBoost、Random Forest 共 5 种模型，构建了该系统，对锂离子电池循环充放电数据进行容量退化趋势预测，计算剩余使用寿命（RUL）。采用留一法（Leave-One-Out）跨电池验证，并提供多种评估指标与 95% 置信区间分析。
+
+> [!IMPORTANT]
+> 本项目是面向教学、科研与离线算法验证的 Research Preview。当前严格零样本基准显示一步容量预测较稳定，但递归 RUL 外推误差仍然很大；结果不得直接用于 BMS 安全保护、质保、报废或其他安全关键决策。TCP 实时接入属于实验功能，请勿暴露到不可信网络。
 
 ## 严格零样本基准（Benchmark）
 
@@ -101,7 +104,7 @@ Battery-SOH-Assessment-System/
 ### 安装
 
 ```bash
-git clone https://github.com/your-username/Battery-SOH-Assessment-System.git
+git clone https://github.com/Guyao-Qiu/Battery-SOH-Assessment-System.git
 cd Battery-SOH-Assessment-System
 pip install -r requirements.txt
 ```
