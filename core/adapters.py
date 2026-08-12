@@ -27,7 +27,9 @@ def _read_data_sort_date(path):
     if extension == '.csv':
         header = pd.read_csv(path, nrows=1)
     elif extension == '.xlsx':
-        header = pd.read_excel(path, nrows=1)
+        with pd.ExcelFile(path) as workbook:
+            sheet = 1 if len(workbook.sheet_names) > 1 else 0
+            header = pd.read_excel(workbook, sheet_name=sheet, nrows=1)
     else:
         raise ValueError(f'不支持的数据文件格式: {extension}')
     normalize_column_names(header)
