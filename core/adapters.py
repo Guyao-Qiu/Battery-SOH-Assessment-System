@@ -417,7 +417,7 @@ class NASAAdapter(BatteryDataAdapter):
                 if stop_flag is not None and stop_flag():
                     break
                 try:
-                    mat = loadmat(p)
+                    mat = loadmat(p, simplify_cells=True)
                 except Exception as e:
                     if log_callback:
                         log_callback(f'跳过 {p}，原因：{e}')
@@ -435,10 +435,16 @@ class NASAAdapter(BatteryDataAdapter):
                     continue
 
                 battery_struct = mat[battery_key]
-                # 结构体路径: battery[0,0]['cycle'][0] = 循环数组
                 try:
-                    cycles = battery_struct[0, 0]['cycle'][0]
-                except (IndexError, KeyError, ValueError) as e:
+                    if not isinstance(battery_struct, dict):
+                        raise ValueError('电池根节点必须是结构体')
+                    cycles = battery_struct['cycle']
+                    if isinstance(cycles, dict):
+                        cycles = [cycles]
+                    else:
+                        cycles = np.asarray(
+                            cycles, dtype=object).reshape(-1).tolist()
+                except (KeyError, TypeError, ValueError) as e:
                     if log_callback:
                         log_callback(f'跳过 {p}，原因：数据结构异常 {e}')
                     continue
@@ -447,21 +453,26 @@ class NASAAdapter(BatteryDataAdapter):
                     if stop_flag is not None and stop_flag():
                         break
                     try:
-                        cycle_type = cycles[i][0]['type'][0]
-                        if isinstance(cycle_type, np.ndarray):
-                            cycle_type = cycle_type[0] if len(cycle_type) > 0 else ''
+                        cycle = cycles[i]
+                        if not isinstance(cycle, dict):
+                            continue
+                        cycle_type = str(cycle.get('type', ''))
+                        data = cycle.get('data')
+                        if not isinstance(data, dict):
+                            continue
 
-                        data = cycles[i][0]['data'][0, 0]
-
-                        if str(cycle_type).lower() == 'discharge':
+                        if cycle_type.lower() == 'discharge':
                             # NASA 数据集直接提供放电容量
-                            if 'Capacity' in data.dtype.names:
-                                cap = float(data['Capacity'][0][0])
+                            if 'Capacity' in data:
+                                cap = float(np.asarray(
+                                    data['Capacity']).reshape(-1)[0])
                             else:
                                 # 回退：从电流和时间积分
-                                v = np.array(data['Voltage_measured'].flatten())
-                                c = np.array(data['Current_measured'].flatten())
-                                t = np.array(data['Time'].flatten())
+                                v = np.asarray(
+                                    data['Voltage_measured']).reshape(-1)
+                                c = np.asarray(
+                                    data['Current_measured']).reshape(-1)
+                                t = np.asarray(data['Time']).reshape(-1)
                                 if len(t) > 1:
                                     dt = np.diff(t)
                                     c_arr = c[1:]
@@ -474,9 +485,11 @@ class NASAAdapter(BatteryDataAdapter):
                                 discharge_capacities.append(cap)
 
                                 # SOH：从电压-容量曲线提取
-                                v = np.array(data['Voltage_measured'].flatten())
-                                c_arr = np.array(data['Current_measured'].flatten())
-                                t = np.array(data['Time'].flatten())
+                                v = np.asarray(
+                                    data.get('Voltage_measured', [])).reshape(-1)
+                                c_arr = np.asarray(
+                                    data.get('Current_measured', [])).reshape(-1)
+                                t = np.asarray(data.get('Time', [])).reshape(-1)
                                 if len(t) > 1:
                                     dt = np.diff(t)
                                     instant_cap = dt * c_arr[1:] / 3600
@@ -498,10 +511,9 @@ class NASAAdapter(BatteryDataAdapter):
                                 pending_ccct = np.nan
                                 pending_cvct = np.nan
 
-                        elif str(cycle_type).lower() == 'charge':
+                        elif cycle_type.lower() == 'charge':
                             # 从充电阶段提取 CCCT / CVCT
-                            t = np.array(data['Time'].flatten())
-                            v = np.array(data['Voltage_measured'].flatten())
+                            t = np.asarray(data.get('Time', [])).reshape(-1)
                             if len(t) > 1:
                                 total_time = t[-1] - t[0]
                                 # 粗略估计：电压变化率小于阈值时为恒压阶段
