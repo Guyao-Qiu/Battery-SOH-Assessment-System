@@ -50,10 +50,12 @@ class EngineeringHygieneTests(unittest.TestCase):
         text = workflow.read_text(encoding="utf-8")
         required_commands = (
             "ruff check .",
-            "bandit -r core models ui utils battery_soh_app.py",
+            "bandit -r core models ui utils battery_soh_app.py --ini .bandit",
             "pip-audit -r requirements.lock",
             "python -m unittest discover -s tests -v",
             "coverage run --source=core,models,ui,utils -m unittest discover -s tests",
+            "coverage report --fail-under=59",
+            "--include=\"core/evaluate.py,core/result_semantics.py,core/run_snapshot.py,utils/config.py\"",
             "coverage report --fail-under=85",
         )
         for command in required_commands:
