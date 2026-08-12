@@ -183,12 +183,13 @@ class PredictionProtocolTests(unittest.TestCase):
         self.assertEqual(
             result["recursive"]["metrics"]["re"], result["rul_re"])
 
-    def test_readme_marks_existing_benchmark_as_old_protocol_result(self):
+    def test_readme_publishes_the_rerun_strict_protocol_result(self):
         readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
             encoding="utf-8")
 
-        self.assertIn("旧方法结果", readme)
+        self.assertIn("严格零样本基准", readme)
         self.assertIn("严格零样本跨电池评估", readme)
+        self.assertIn("benchmark/strict_zero_shot_rnn.json", readme)
 
     def test_ui_failure_cycle_comes_from_recursive_future_prediction(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
