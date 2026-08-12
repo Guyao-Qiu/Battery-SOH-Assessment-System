@@ -287,34 +287,34 @@ D:\Anaconda3\envs\pytorch\python.exe -m pip check
 
 ### 指标与结果语义
 
-- [ ] 无真实阈值交叉或无预测阈值交叉时，RE 返回 N/A/截尾状态，不再统一返回 `1.0`。证据：`core/evaluate.py:6-18`。
-- [ ] 失效循环使用真实原始循环编号，并区分“实测失效”“模型预测失效”“观测期内未失效”。证据：`ui/main_window.py:1418-1428`。
-- [ ] 置信区间明确仅反映随机种子波动，不冒充跨电池总体不确定性。
-- [ ] README 的 benchmark 在新验证协议下重新运行，记录硬件、数据哈希、依赖版本和完整参数。
+- [x] 无真实阈值交叉或无预测阈值交叉时，RE 返回 N/A/截尾状态，不再统一返回 `1.0`。证据：`core/evaluate.py`、`tests/test_metric_semantics.py`。
+- [x] 失效循环使用真实原始循环编号，并区分“实测失效”“模型预测失效”“观测期内未失效”。证据：`core/result_semantics.py`、`ui/main_window.py`、`tests/test_metric_semantics.py`。
+- [x] 置信区间明确仅反映随机种子波动，不冒充跨电池总体不确定性。证据：结果详情和 README 均标注“同一留一折内的随机种子波动”。
+- [x] README 的 benchmark 在新验证协议下重新运行，记录硬件、数据哈希、依赖版本和完整参数。证据：`benchmark/strict_zero_shot_rnn.json`；RTX 4050 上完成 4 折 × 5 种子严格零样本 RNN 基准，总耗时 246.515 秒。
 
 ### 配置和交互
 
-- [ ] 修复配置恢复中不存在的 `model_combo`；使用统一模型状态。证据：`ui/main_window.py:224-282`。
-- [ ] 配置保存失败不能静默 `pass`，应记录并提示。证据：`utils/config.py:42-57`。
-- [ ] 配置、输出和日志路径基于项目目录或用户数据目录，不依赖 PyCharm 当前工作目录。
-- [ ] 连接并发送真实 `progress_signal`，显示当前阶段、电池、种子、epoch和耗时。证据：`ui/worker.py:10-16`。
-- [ ] 保留现有无障碍焦点、宣纸水墨主题和图表全屏交互。
+- [x] 修复配置恢复中不存在的 `model_combo`；使用统一模型状态。证据：`ui/main_window.py`、`tests/test_config_roundtrip.py`。
+- [x] 配置保存失败不能静默 `pass`，应记录并提示。证据：`utils/config.py`、`tests/test_config_paths_progress.py`。
+- [x] 配置、输出和日志路径基于项目目录或用户数据目录，不依赖 PyCharm 当前工作目录。证据：`utils/paths.py`、`tests/test_config_paths_progress.py`。
+- [x] 连接并发送真实 `progress_signal`，显示当前阶段、电池、种子、epoch和耗时。证据：`core/progress.py`、`ui/worker.py`、`ui/predict_worker.py`、`tests/test_config_paths_progress.py`。
+- [x] 保留现有无障碍焦点、宣纸水墨主题和图表全屏交互。证据：`tests/test_ui_design_contract.py` 全部通过。
 
 ### 性能与资源
 
-- [ ] CALCE Excel 排序和正式提取不要重复完整读取，可缓存 DataFrame或只读日期列。证据：`core/adapters.py:237-267`。
-- [ ] 大数据训练使用 DataLoader/小批量，避免把全部样本一次搬入 GPU。
-- [ ] TCP 只保留窗口所需历史和独立循环计数，避免每次复制全部缓冲区。
-- [ ] 递归 RUL 预测加入批次、缓存或频率控制，不必每个容量点都重新预测 2000 步。
+- [x] CALCE Excel 排序和正式提取不要重复完整读取，可缓存 DataFrame或只读日期列。证据：`core/adapters.py`、`tests/test_resource_efficiency.py`；真实 CALCE Excel 数据工作表回归通过，每个文件只完整读取一次。
+- [x] 大数据训练使用 DataLoader/小批量，避免把全部样本一次搬入 GPU。证据：`core/batching.py`、`tests/test_resource_efficiency.py`，批次上限 64。
+- [ ] TCP 只保留窗口所需历史和独立循环计数，避免每次复制全部缓冲区。（用户明确要求跳过 TCP 有关部分，未修改）
+- [ ] 递归 RUL 预测加入批次、缓存或频率控制，不必每个容量点都重新预测 2000 步。（`2000` 步路径仅位于 TCP 实时预测，按用户要求跳过；离线评估不使用该循环）
 
 ### 日志、依赖和工程卫生
 
-- [ ] 不可信文件名、异常和网络内容使用纯文本插入，不能直接 `insertHtml()`。证据：`ui/main_window.py:929-934`。
-- [ ] 用户弹窗不显示完整 traceback；完整堆栈只写入本地日志。
-- [ ] 使用锁文件固定经过验证的依赖组合，并加入哈希或可重复环境文件。证据：`requirements.txt`。
-- [ ] CI 加入 Ruff、Bandit、pip-audit、测试和覆盖率门禁。
-- [ ] 清理分发包中的 `.idea`、`__pycache__` 和运行输出。
-- [ ] README 将“Quantum Lab 暗色主题”更新为当前宣纸水墨主题，并补充正式许可证文件。
+- [x] 不可信文件名、异常和网络内容使用纯文本插入，不能直接 `insertHtml()`。证据：`ui/main_window.py`、`tests/test_safe_logging.py`。
+- [x] 用户弹窗不显示完整 traceback；完整堆栈只写入本地日志。证据：`battery_soh_app.py`、评估/预测 worker、`tests/test_safe_logging.py`。
+- [x] 使用锁文件固定经过验证的依赖组合，并加入哈希或可重复环境文件。证据：`requirements.lock`、`requirements-cuda.lock`、`requirements-dev.lock`；PyTorch 2.13.0+cu130 在 RTX 4050 上完成 CUDA 运算验证。
+- [x] CI 加入 Ruff、Bandit、pip-audit、测试和覆盖率门禁。证据：`.github/workflows/quality.yml`；全仓覆盖率基线 59%，阶段 4 核心模块覆盖率 90%。
+- [x] 清理分发包中的 `.idea`、`__pycache__` 和运行输出。证据：`.gitignore` 和 `git ls-files` 验证这些路径均未进入 Git 分发内容；本地忽略的运行文件不做破坏性删除。
+- [x] README 将“Quantum Lab 暗色主题”更新为当前宣纸水墨主题，并补充正式许可证文件。证据：`README.md`、MIT `LICENSE`、`tests/test_engineering_hygiene.py`。
 
 ---
 
@@ -391,7 +391,7 @@ Codex 每完成一项，在此更新状态并记录验证证据：
 | 编号 | 状态 | 修改文件 | 新增测试 | 验证结果 | 备注 |
 |---|---|---|---|---|---|
 | P1-01 | 已修复 | `core/preprocess.py`、`core/train.py`、`models/XGBoost.py`、`models/RF.py` | `tests/test_evaluation_protocol.py` | 目标哨兵隔离、多种子均值、独立验证集通过 | CI 仅表示同一留一折的随机种子波动 |
-| P1-02 | 已修复 | `core/preprocess.py`、`core/train.py`、`ui/main_window.py`、`README.md` | `tests/test_evaluation_protocol.py` | 严格零样本、一步/递归分离、递归失效循环通过 | 旧 benchmark 已标记为旧方法结果，未生成新基准 |
+| P1-02 | 已修复 | `core/preprocess.py`、`core/train.py`、`ui/main_window.py`、`README.md` | `tests/test_evaluation_protocol.py`、`tests/test_benchmark_manifest.py` | 严格零样本、一步/递归分离、递归失效循环与 4 折 × 5 种子实测基准通过 | 新基准已发布至 `benchmark/strict_zero_shot_rnn.json` |
 | P1-03 | 已修复 | `core/preprocess.py`、`core/prediction.py`、`core/train.py`、`core/model_persistence.py`、`ui/predict_worker.py`、`ui/tcp_server.py` | `tests/test_scaling.py` | 三种 scaler、训练集拟合、元数据往返、共享预测路径通过 | 兼容无 scaler 的旧树模型原始输入契约 |
 | P1-04 | 已修复 | `utils/config.py`、`models/rnn_model.py`、`ui/main_window.py` | `tests/test_config_roundtrip.py` | 五模型全部配置字段 round-trip 与真实窗口重建通过 | 非法模型直接拒绝，不回退 |
 | P1-05 | 已修复 | `ui/predict_worker.py` | `tests/test_predict_worker_metrics.py` | 五个单指标和“全部”均通过，平均值按所选指标计算 | RE 使用递归未来预测 |
@@ -405,6 +405,7 @@ Codex 每完成一项，在此更新状态并记录验证证据：
 | P1-13 | 部分修复（TCP跳过） | `core/cancellation.py`、`core/train.py`、`core/model_persistence.py`、`models/`、`ui/worker.py`、`ui/predict_worker.py`、`ui/main_window.py` | `tests/test_cooperative_stop.py` | 文件加载、RNN、RF/XGB、最终训练与窗口关闭的非 TCP 停止流程通过 | TCP 停止与关闭流程按用户要求未修改 |
 | P1-14 | 已修复 | `core/adapters.py`、`core/train.py`、`ui/worker.py`、`ui/predict_worker.py`、`ui/main_window.py`、`ui/chart_show.py` | `tests/test_named_results.py` | 无效/短电池跳过后，加载、预测、详情与图表均按电池名称对应 | 重复电池名称会记录跳过原因 |
 | P1-15 | 已修复 | `core/run_snapshot.py`、`core/report_export.py`、`ui/main_window.py`、`ui/worker.py`、`ui/predict_worker.py` | `tests/test_run_snapshot_export.py`、`tests/test_cooperative_stop.py` | 不可变快照、运行期控件冻结、运行 ID 目录、覆盖确认、原子导出与错误恢复测试通过 | 报告不再读取导出时的实时 UI 参数 |
+| P2-阶段4 | 已完成（TCP 项跳过） | `core/`、`ui/`、`utils/`、`README.md`、依赖锁和 CI | `tests/test_metric_semantics.py`、`tests/test_config_paths_progress.py`、`tests/test_resource_efficiency.py`、`tests/test_safe_logging.py`、`tests/test_engineering_hygiene.py`、`tests/test_benchmark_manifest.py` | 118 项回归目标、Ruff、Bandit、pip-audit、两级覆盖率和 CUDA 实测门禁 | TCP 缓冲与 TCP 2000 步频控按用户要求未修改 |
 
 ## 推荐执行顺序摘要
 

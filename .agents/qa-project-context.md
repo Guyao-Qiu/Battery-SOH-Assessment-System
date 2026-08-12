@@ -11,7 +11,7 @@
 
 - Python 3.10.20。
 - 桌面界面：PyQt6 6.11.0。
-- 模型与数据：PyTorch 2.1.0、scikit-learn 1.7.2、XGBoost 3.0.2、pandas 2.3.3、NumPy 1.26.4、Matplotlib 3.10.9。
+- 模型与数据：PyTorch 2.13.0+cu130（CPU/CI 锁为 2.13.0）、scikit-learn 1.7.2、XGBoost 3.0.2、pandas 2.3.3、NumPy 1.26.4、Matplotlib 3.10.9。
 - 数据格式：CALCE CSV 或 XLSX、NASA MAT。
 - 运行平台：当前验证环境为 Windows CPU 或 CUDA；项目声明兼容 Windows、macOS 和 Linux。
 
@@ -19,19 +19,19 @@
 
 - 测试框架：Python 标准库 unittest。
 - 测试目录：tests。
-- 当前基线：57 项 unittest；2026-08-11 在项目解释器中全部通过。
+- 当前基线：118 项 unittest；2026-08-12 在项目解释器中完成阶段 4 回归。
 - 集成与端到端：已有真实离屏窗口状态测试，以及五模型小样本训练、保存、加载、预测覆盖；TCP 自动化按用户要求暂不补充。
-- 覆盖率工具：未配置。
+- 覆盖率工具：Coverage.py 7.15.2；全仓防回退基线 59%，阶段 4 核心语义/快照/配置模块门禁 85%（当前实测 90%）。
 
 ## CI/CD
 
-- 仓库未检测到 GitHub Actions、GitLab CI、Jenkins 或其他流水线配置。
-- 当前质量门禁为本地执行 unittest、compileall 和 pip check。
-- 修复清单建议后续增加 Ruff、Bandit、pip-audit、测试和覆盖率门禁；在阶段 4 前只记录为目标，不假装已启用。
+- GitHub Actions：`.github/workflows/quality.yml`，Windows 与 Linux、Python 3.10。
+- 门禁：compileall、Ruff、Bandit、pip-audit、unittest、全仓覆盖率基线和阶段 4 核心模块 85% 覆盖率。
+- 本地阶段 4 门禁另包含 `pip check`、RTX 4050 CUDA 张量运算和五模型保存/加载/预测 smoke test。
 
 ## Environments
 
-- 开发与验证：Windows，PyCharm 对应的 pytorch Conda 解释器。
+- 开发与验证：Windows 11，pytorch Conda 解释器，NVIDIA RTX 4050 Laptop GPU，驱动 596.49，CUDA 13.0。
 - CPU 是基础必测环境；CUDA 是独立兼容性环境，不阻塞 CPU 基础门禁。
 - Staging、Production、托管服务和外部测试地址：仓库未配置。
 - 测试数据应使用内存合成序列和最小黄金文件，不访问外部网络。
@@ -72,7 +72,7 @@
 
 ## Current Stage Gate
 
-- 阶段 2 仅执行用户批准的非 TCP 项 P1-08 至 P1-10；P1-06、P1-07 已跳过且仍未修复。
-- PyTorch 只允许经哈希和 schema 校验的 state-dict 安全加载；joblib 必须由用户明确确认风险。
-- 最终导出模型先用验证集选择训练长度，再以全部有效电池重训并记录数据身份。
-- 阶段 2 非 TCP 回归完成并汇报后暂停，未经用户确认不进入阶段 3。
+- 阶段 4 的非 TCP 优化已实现；TCP 缓冲、TCP 2000 步递归频控及此前 TCP 缺陷继续按用户要求跳过。
+- 严格零样本 RNN 基准已在 4 块 CALCE 电池、5 个预定种子上重跑；产物为 `benchmark/strict_zero_shot_rnn.json`。
+- PyTorch 2.1.0+cu118、torchaudio 2.1.0+cu118、torchvision 0.16.0+cu118 已从验证环境移除；当前仅保留 PyTorch 2.13.0+cu130。
+- 阶段 4 完整回归和标签完成后暂停，未经用户确认不进入阶段 5。
