@@ -68,6 +68,16 @@ class BatchGuardNet(nn.Module):
 
 
 class CalceReadEfficiencyTests(unittest.TestCase):
+    def test_real_calce_excel_sort_date_comes_from_data_sheet(self):
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "dataset" / "CS2_35" / "CS2_35_8_17_10.xlsx"
+        )
+
+        sort_date = adapters_module._read_data_sort_date(path)
+
+        self.assertEqual(str(sort_date), "2010-08-16 13:44:57")
+
     def test_each_calce_file_is_fully_read_only_once(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "cell.csv"
