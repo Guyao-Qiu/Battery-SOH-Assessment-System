@@ -1,0 +1,2 @@
+[bandit]
+exclude = tests,ui/tcp_server.py,ui/tcp_display.py

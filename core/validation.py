@@ -1,8 +1,12 @@
 import glob
+import logging
 import os
 
 import numpy as np
 import pandas as pd
+
+
+logger = logging.getLogger('battery_soh')
 
 
 DEFAULT_MAX_FILE_BYTES = 100 * 1024 * 1024
@@ -178,8 +182,9 @@ def _read_data_file(filepath, max_rows=DEFAULT_MAX_ROWS,
             if not key.startswith('__'):
                 try:
                     return pd.DataFrame(value)
-                except Exception:
-                    continue
+                except Exception as error:
+                    logger.debug(
+                        'MAT 变量 %s 无法转换为表格：%s', key, error)
         raise ValueError('MAT 文件中未找到可转换为表格的数据')
 
     raise ValueError(

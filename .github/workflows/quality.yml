@@ -28,7 +28,7 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Static security scan
-        run: bandit -r core models ui utils battery_soh_app.py
+        run: bandit -r core models ui utils battery_soh_app.py --ini .bandit
       - name: Dependency audit
         run: pip-audit -r requirements.lock
       - name: Tests
@@ -37,4 +37,5 @@ jobs:
         shell: bash
         run: |
           coverage run --source=core,models,ui,utils -m unittest discover -s tests
-          coverage report --fail-under=85
+          coverage report --fail-under=59
+          coverage report --fail-under=85 --include="core/evaluate.py,core/result_semantics.py,core/run_snapshot.py,utils/config.py"

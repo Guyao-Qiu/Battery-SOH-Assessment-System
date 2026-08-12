@@ -9,6 +9,15 @@ from PyQt6.QtGui import QPixmap, QPainter, QColor, QIcon
 from PyQt6.QtCore import Qt
 
 
+def concise_startup_error(error):
+    """Return one safe line for a startup dialog; traceback stays in logs."""
+    first_line = next(
+        (line.strip() for line in str(error).splitlines() if line.strip()),
+        error.__class__.__name__,
+    )
+    return f'加载核心模块失败：{first_line[:500]}'
+
+
 def _get_icon():
     """加载 SOH.ico 作为应用图标（不导入 utils，避免提前触发 torch 导入）。"""
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
@@ -122,16 +131,21 @@ if __name__ == '__main__':
 
     try:
         from ui.main_window import MainWindow
-    except Exception:
+    except Exception as startup_error:
         traceback.print_exc()
         qt_splash._programmatic_close = True
         qt_splash.close()
         try:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(None, '启动失败',
-                                 f'加载核心模块失败：\n\n{traceback.format_exc()}')
+            from utils.logger import setup_logger
+            setup_logger().exception('加载核心模块失败')
         except Exception:
-            pass
+            traceback.print_exc()
+        try:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                None, '启动失败', concise_startup_error(startup_error))
+        except Exception:
+            traceback.print_exc()
         sys.exit(1)
 
     qt_splash.set_progress(75)

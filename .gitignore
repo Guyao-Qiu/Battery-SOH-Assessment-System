@@ -22,6 +22,9 @@ env/
 # Outputs (runtime generated)
 outputs/
 *.log
+.coverage
+.coverage.*
+htmlcov/
 
 # Model files (runtime generated)
 *.pt
