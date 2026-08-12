@@ -3,8 +3,8 @@ import os
 import traceback
 
 # _StartupSplash 类依赖的 PyQt6 组件必须在类定义前导入
-from PyQt6.QtWidgets import (QWidget, QProgressBar,
-                              QApplication)
+from PyQt6.QtWidgets import (QWidget, QProgressBar, QLabel,
+                               QApplication)
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QIcon
 from PyQt6.QtCore import Qt
 
@@ -61,23 +61,45 @@ class _StartupSplash(QWidget):
             self._bg_pixmap = QPixmap(self.size())
             self._bg_pixmap.fill(QColor(15, 23, 42))
 
-        # ── 进度条（底部，无文字）──
+        # ── 加载状态与百分比进度 ──
+        self._status_label = QLabel('正在准备启动…', self)
+        self._status_label.setGeometry(40, 274, 440, 24)
+        self._status_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._status_label.setAccessibleName('当前加载阶段')
+        self._status_label.setStyleSheet('''
+            QLabel {
+                color: #CBD5E1;
+                font-family: "Microsoft YaHei UI";
+                font-size: 12px;
+                font-weight: 500;
+                background: transparent;
+            }
+        ''')
+
         self._progress = QProgressBar(self)
-        self._progress.setGeometry(40, 310, 440, 8)
-        self._progress.setTextVisible(False)       # 不显示内部文字
+        self._progress.setGeometry(40, 304, 440, 22)
+        self._progress.setTextVisible(True)
+        self._progress.setFormat('%p%')
+        self._progress.setAccessibleName('应用启动进度')
         self._progress.setMinimum(0)
         self._progress.setMaximum(100)
         self._progress.setValue(0)
         self._progress.setStyleSheet('''
             QProgressBar {
-                border: none;
-                border-radius: 4px;
-                background-color: rgba(51, 65, 85, 0.9);
+                border: 1px solid rgba(148, 163, 184, 0.45);
+                border-radius: 7px;
+                background-color: rgba(15, 23, 42, 0.82);
+                color: #F8FAFC;
+                font-family: "Microsoft YaHei UI";
+                font-size: 11px;
+                font-weight: 600;
+                text-align: center;
             }
             QProgressBar::chunk {
-                border-radius: 4px;
+                border-radius: 6px;
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #22D3EE, stop:1 #06B6D4);
+                    stop:0 #0E7490, stop:1 #22D3EE);
             }
         ''')
 
@@ -94,9 +116,12 @@ class _StartupSplash(QWidget):
         painter.drawPixmap(self.rect(), self._bg_pixmap)
         painter.end()
 
-    def set_progress(self, value):
-        """更新进度条值（0-100）。"""
-        self._progress.setValue(int(value))
+    def set_progress(self, value, status):
+        """更新真实启动阶段、百分比和窗口标题。"""
+        progress = max(0, min(100, int(value)))
+        self._progress.setValue(progress)
+        self._status_label.setText(str(status))
+        self.setWindowTitle(f'正在启动 · {progress}%')
         QApplication.processEvents()
 
     def closeEvent(self, event):
@@ -122,11 +147,11 @@ if __name__ == '__main__':
     # 立即显示启动闪屏
     qt_splash = _StartupSplash()
     qt_splash.show()
-    qt_splash.set_progress(5)
+    qt_splash.set_progress(5, '正在准备应用界面…')
     app.processEvents()
 
     # ── 阶段 2：加载核心模块（进度 5% → 80%，最耗时）──
-    qt_splash.set_progress(15)
+    qt_splash.set_progress(15, '正在加载计算与绘图组件…')
     app.processEvents()
 
     try:
@@ -148,23 +173,24 @@ if __name__ == '__main__':
             traceback.print_exc()
         sys.exit(1)
 
-    qt_splash.set_progress(75)
+    qt_splash.set_progress(75, '核心组件加载完成')
     app.processEvents()
 
     # ── 阶段 3：初始化主窗口（进度 80% → 95%）──
-    qt_splash.set_progress(82)
+    qt_splash.set_progress(82, '正在初始化主窗口…')
     app.processEvents()
 
     window = MainWindow()
-    qt_splash.set_progress(92)
+    qt_splash.set_progress(92, '正在恢复配置与界面状态…')
     app.processEvents()
 
     window.show()
-    qt_splash.set_progress(98)
+    qt_splash.set_progress(98, '正在呈现主界面…')
     app.processEvents()
 
     # ── 关闭闪屏（进度 100%）──
     # 标记为程序主动关闭，避免 closeEvent 中 sys.exit(0) 导致整个应用退出
+    qt_splash.set_progress(100, '启动完成')
     qt_splash._programmatic_close = True
     qt_splash.close()
     qt_splash.deleteLater()

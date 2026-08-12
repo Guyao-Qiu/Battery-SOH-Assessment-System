@@ -1071,9 +1071,8 @@ class MainWindow(QMainWindow):
             show_message(self, 'warning', '提示', '请先导入文件或文件夹。')
             return
         config = self._build_config()
-        from core.validation import validate_evaluation_request
-        errors = validate_evaluation_request(
-            config, self.imported_paths, log_callback=self.append_log)
+        from core.validation import validate_training_config
+        errors = validate_training_config(config)
         if errors:
             visible_errors = errors[:10]
             suffix = (
