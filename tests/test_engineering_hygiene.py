@@ -31,11 +31,24 @@ class EngineeringHygieneTests(unittest.TestCase):
         }
         locked = {line.split("==", 1)[0] for line in lines if "==" in line}
         self.assertEqual(expected, locked)
+        self.assertIn("torch==2.13.0", lines)
         self.assertTrue(
             all(re.fullmatch(r"[A-Za-z0-9_.-]+==[^\s]+", line) for line in lines),
             "运行依赖必须使用精确版本，不得使用范围约束",
         )
         self.assertEqual("-r requirements.lock", (ROOT / "requirements.txt").read_text(encoding="utf-8").strip())
+
+    def test_cuda_environment_has_a_reproducible_lock(self):
+        cuda_lock = ROOT / "requirements-cuda.lock"
+        self.assertTrue(cuda_lock.is_file(), "缺少 CUDA 环境锁文件")
+        text = cuda_lock.read_text(encoding="utf-8")
+        self.assertIn("-r requirements.lock", text)
+        self.assertIn("https://download.pytorch.org/whl/cu130", text)
+        self.assertIn("torch==2.13.0+cu130", text)
+        self.assertIn(
+            "requirements-cuda.lock",
+            (ROOT / "README.md").read_text(encoding="utf-8"),
+        )
 
     def test_quality_dependencies_are_exactly_locked(self):
         lock_path = ROOT / "requirements-dev.lock"
