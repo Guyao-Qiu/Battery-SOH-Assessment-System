@@ -91,6 +91,14 @@ pip install -r requirements.txt
 
 `requirements.txt` 会引用项目验证过的精确版本锁文件；开发与质量门禁工具另见 `requirements-dev.lock`。当前锁定组合以 Python 3.10 为基准。
 
+Windows + NVIDIA 显卡使用已验证的 CUDA 13.0 环境：
+
+```bash
+pip install -r requirements-cuda.lock
+```
+
+该组合在 RTX 4050 Laptop GPU、驱动 596.49 上以 `torch 2.13.0+cu130` 完成了实际 CUDA 张量运算验证。普通 `requirements.lock` 保留 PyPI 的 `torch 2.13.0`，供 CPU 环境和 CI 使用。
+
 ### 启动应用
 
 ```bash

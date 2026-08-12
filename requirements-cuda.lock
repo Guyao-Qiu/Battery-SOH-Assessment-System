@@ -1,0 +1,5 @@
+# Windows NVIDIA environment validated on RTX 4050 / driver 596.49.
+# The extra index carries the CUDA 13.0 wheel; the CPU/CI lock remains portable.
+--extra-index-url https://download.pytorch.org/whl/cu130
+-r requirements.lock
+torch==2.13.0+cu130
