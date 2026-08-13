@@ -75,6 +75,13 @@ class EngineeringHygieneTests(unittest.TestCase):
             self.assertIn(command, text)
         self.assertIn("3.10", text)
 
+    def test_linux_ci_installs_pyqt_runtime_library(self):
+        workflow = (
+            ROOT / ".github" / "workflows" / "quality.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("runner.os == 'Linux'", workflow)
+        self.assertIn("sudo apt-get install -y libegl1", workflow)
+
     def test_distribution_excludes_runtime_and_ide_artifacts(self):
         tracked = subprocess.run(
             ["git", "ls-files"],
