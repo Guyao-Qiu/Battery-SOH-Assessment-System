@@ -2,6 +2,8 @@
 
 > 电池健康状态评估系统
 
+语言：中文 · [English](README_EN.md)
+
 基于马里兰大学 CALCE 锂电池充放电数据集，采用 PyQt6 设计 UI 界面，利用 RNN/GRU/LSTM 及 XGBoost、Random Forest 共 5 种模型，构建了该系统，对锂离子电池循环充放电数据进行容量退化趋势预测，计算剩余使用寿命（RUL）。采用留一法（Leave-One-Out）跨电池验证，并提供多种评估指标与 95% 置信区间分析。
 
 > [!IMPORTANT]

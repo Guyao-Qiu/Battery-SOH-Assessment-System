@@ -104,6 +104,19 @@ class EngineeringHygieneTests(unittest.TestCase):
         self.assertIn("MIT License", license_text)
         self.assertIn("Permission is hereby granted", license_text)
 
+    def test_bilingual_readme_pair_is_published(self):
+        chinese = (ROOT / "README.md").read_text(encoding="utf-8")
+        english_path = ROOT / "README_EN.md"
+        self.assertTrue(english_path.is_file(), "缺少英文 README")
+        english = english_path.read_text(encoding="utf-8")
+        self.assertTrue(english.startswith("# Battery SOH Assessment System\n"))
+        self.assertIn("严格零样本基准", chinese)
+        self.assertIn("Strict Zero-Shot Benchmark", english)
+        self.assertIn("README_EN.md", chinese)
+        self.assertIn("README.md", english)
+        self.assertIn("Research Preview", english)
+        self.assertIn("MIT License", english)
+
 
 if __name__ == "__main__":
     unittest.main()
