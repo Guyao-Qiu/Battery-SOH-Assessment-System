@@ -127,54 +127,6 @@ QLabel[role="emptyState"] {{
     padding: 24px 18px;
 }}
 
-/* ── 工作台任务语境 ───────────────────────────── */
-QFrame#workspaceHeader {{
-    background: {COLORS['bg_surface']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 8px;
-}}
-QLabel[role="workspaceTitle"] {{
-    {_display_font(16, 'bold')}
-    color: {COLORS['primary_d']};
-    letter-spacing: 1px;
-}}
-QLabel[role="workspaceSubtitle"] {{
-    {_font(8)}
-    color: {COLORS['text_muted']};
-    letter-spacing: 0.5px;
-}}
-QLabel[role="workflowStep"] {{
-    {_font(9, '600')}
-    color: {COLORS['text_muted']};
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 11px;
-    padding: 4px 9px;
-    min-width: 58px;
-}}
-QLabel[role="workflowStep"][state="active"] {{
-    color: {COLORS['on_accent']};
-    background: {COLORS['primary']};
-    border-color: {COLORS['primary_d']};
-}}
-QLabel[role="workflowStep"][state="complete"] {{
-    color: {COLORS['primary_d']};
-    background: rgba(49, 91, 90, 0.08);
-    border-color: {COLORS['primary_l']};
-}}
-QFrame[role="workflowConnector"] {{
-    background: {COLORS['border_soft']};
-    border: none;
-}}
-QLabel[role="workspaceBadge"] {{
-    {_font(8, 'bold')}
-    color: {COLORS['warning']};
-    background: rgba(152, 101, 46, 0.08);
-    border: 1px solid {COLORS['warning']};
-    border-radius: 9px;
-    padding: 4px 8px;
-}}
-
 QFrame[role="dataSummary"] {{
     background: rgba(49, 91, 90, 0.06);
     border: 1px solid {COLORS['border_soft']};

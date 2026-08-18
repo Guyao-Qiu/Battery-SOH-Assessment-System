@@ -3,8 +3,10 @@ import os
 import traceback
 
 # _StartupSplash 类依赖的 PyQt6 组件必须在类定义前导入
-from PyQt6.QtWidgets import (QWidget, QProgressBar, QLabel,
-                               QApplication)
+from PyQt6.QtWidgets import (
+    QWidget, QProgressBar, QLabel, QApplication,
+    QFrame, QHBoxLayout, QVBoxLayout,
+)
 from PyQt6.QtGui import QPainter, QColor, QIcon, QLinearGradient, QPen
 from PyQt6.QtCore import Qt, QRectF
 
@@ -52,16 +54,6 @@ class _StartupSplash(QWidget):
         self.setWindowTitle('电池 SOH 评估系统')
 
         self.setStyleSheet('''
-            QLabel[role="splashBadge"] {
-                color: #76563A;
-                background: rgba(152, 101, 46, 0.08);
-                border: 1px solid #98652E;
-                border-radius: 9px;
-                padding: 3px 8px;
-                font-family: "Microsoft YaHei UI";
-                font-size: 10px;
-                font-weight: 600;
-            }
             QLabel[role="splashTitle"] {
                 color: #244743;
                 background: transparent;
@@ -77,51 +69,58 @@ class _StartupSplash(QWidget):
                 font-size: 11px;
                 letter-spacing: 1px;
             }
-            QLabel[role="splashStage"] {
-                color: #59635D;
-                background: rgba(250, 246, 236, 0.78);
-                border: 1px solid #C5BBAA;
-                border-radius: 12px;
-                font-family: "Microsoft YaHei UI";
-                font-size: 11px;
-                font-weight: 600;
-                padding: 5px 10px;
+            QFrame[role="splashBattery"] {
+                background: rgba(49, 91, 90, 0.05);
+                border: 2px solid #315B5A;
+                border-radius: 7px;
             }
-            QLabel[role="splashStage"][state="active"] {
-                color: #FFF9ED;
+            QFrame[role="splashBatteryTerminal"] {
                 background: #315B5A;
-                border-color: #244743;
+                border: none;
+                border-radius: 2px;
             }
-            QLabel[role="splashStage"][state="complete"] {
-                color: #315B5A;
-                background: rgba(49, 91, 90, 0.10);
-                border-color: #52766E;
+            QFrame[role="splashBatteryLine"] {
+                background: #315B5A;
+                border: none;
             }
         ''')
 
-        self._badge_label = QLabel('本地研究评估', self)
-        self._badge_label.setProperty('role', 'splashBadge')
-        self._badge_label.setGeometry(476, 34, 106, 26)
-        self._badge_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._identity_widget = QWidget(self)
+        self._identity_widget.setObjectName('splashIdentity')
+        self._identity_widget.setGeometry(70, 78, 480, 108)
+        identity_layout = QHBoxLayout(self._identity_widget)
+        identity_layout.setContentsMargins(0, 0, 0, 0)
+        identity_layout.setSpacing(16)
+        identity_layout.addStretch(1)
 
-        self._title_label = QLabel('电池 SOH 评估系统', self)
+        battery_mark = QWidget()
+        battery_mark.setFixedSize(58, 72)
+        battery = QFrame(battery_mark)
+        battery.setProperty('role', 'splashBattery')
+        battery.setGeometry(4, 8, 46, 58)
+        terminal = QFrame(battery_mark)
+        terminal.setProperty('role', 'splashBatteryTerminal')
+        terminal.setGeometry(17, 2, 20, 7)
+        for width, y in ((22, 22), (27, 33), (19, 44)):
+            line = QFrame(battery)
+            line.setProperty('role', 'splashBatteryLine')
+            line.setGeometry(11, y, width, 2)
+        identity_layout.addWidget(battery_mark)
+
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(1)
+        self._title_label = QLabel('电池 SOH 评估系统')
         self._title_label.setProperty('role', 'splashTitle')
-        self._title_label.setGeometry(104, 55, 390, 46)
-
+        self._title_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._subtitle_label = QLabel(
-            'Battery State of Health Assessment Workspace', self)
+            'Battery State of Health Assessment Workspace')
         self._subtitle_label.setProperty('role', 'splashSubtitle')
-        self._subtitle_label.setGeometry(106, 101, 390, 24)
-
-        self._stage_labels = []
-        for index, text in enumerate(('数据准备', '模型加载', '工作台就绪')):
-            label = QLabel(text, self)
-            label.setProperty('role', 'splashStage')
-            label.setProperty('state', 'active' if index == 0 else 'idle')
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            label.setGeometry(48 + index * 190, 211, 144, 34)
-            label.setAccessibleName(f'启动阶段：{text}')
-            self._stage_labels.append(label)
+        text_layout.addWidget(self._title_label)
+        text_layout.addWidget(self._subtitle_label)
+        identity_layout.addLayout(text_layout)
+        identity_layout.addStretch(1)
 
         # ── 加载状态与百分比进度 ──
         self._status_label = QLabel('正在准备启动…', self)
@@ -186,23 +185,8 @@ class _StartupSplash(QWidget):
         for offset in range(-120, 660, 28):
             painter.drawLine(offset, 0, offset + 180, self.height())
 
-        painter.setPen(QPen(QColor('#315B5A'), 2))
-        painter.setBrush(QColor(49, 91, 90, 18))
-        painter.drawRoundedRect(QRectF(46, 55, 42, 56), 7, 7)
-        painter.drawRect(QRectF(58, 49, 18, 7))
-        painter.drawLine(57, 93, 77, 93)
-        painter.drawLine(57, 83, 72, 83)
-        painter.drawLine(57, 73, 67, 73)
-
         painter.setPen(QPen(QColor(137, 141, 132, 100), 1))
-        painter.drawLine(48, 178, 572, 178)
-        painter.drawLine(192, 228, 238, 228)
-        painter.drawLine(382, 228, 428, 228)
-
-        painter.setPen(QPen(QColor(49, 91, 90, 28), 1))
-        painter.setBrush(QColor(49, 91, 90, 10))
-        painter.drawEllipse(QRectF(468, 90, 92, 68))
-        painter.drawEllipse(QRectF(493, 105, 48, 36))
+        painter.drawLine(48, 220, 572, 220)
 
         painter.setPen(QPen(QColor(137, 141, 132, 120), 1))
         painter.drawRoundedRect(QRectF(18, 18, 584, 364), 10, 10)
@@ -213,13 +197,6 @@ class _StartupSplash(QWidget):
         progress = max(0, min(100, int(value)))
         self._progress.setValue(progress)
         self._status_label.setText(str(status))
-        active_stage = 0 if progress < 75 else (1 if progress < 92 else 2)
-        for index, label in enumerate(self._stage_labels):
-            state = 'complete' if index < active_stage else (
-                'active' if index == active_stage else 'idle')
-            label.setProperty('state', state)
-            label.style().unpolish(label)
-            label.style().polish(label)
         self.setWindowTitle(f'电池 SOH 评估系统 · {progress}%')
         QApplication.processEvents()
 

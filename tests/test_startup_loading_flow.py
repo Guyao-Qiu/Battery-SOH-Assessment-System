@@ -41,7 +41,8 @@ class StartupSplashProgressTests(unittest.TestCase):
             splash.deleteLater()
             self.app.processEvents()
 
-    def test_splash_uses_paper_ink_brand_hierarchy(self):
+    def test_splash_centers_identity_and_omits_extra_labels(self):
+        from PyQt6.QtWidgets import QLabel
         from battery_soh_app import _StartupSplash
 
         splash = _StartupSplash()
@@ -49,10 +50,16 @@ class StartupSplashProgressTests(unittest.TestCase):
             self.assertEqual(splash.objectName(), "startupSplash")
             self.assertEqual(splash.property("visualWorld"), "paperInk")
             self.assertEqual(splash._title_label.text(), "电池 SOH 评估系统")
+            self.assertEqual(splash._identity_widget.objectName(), "splashIdentity")
             self.assertEqual(
-                [label.text() for label in splash._stage_labels],
-                ["数据准备", "模型加载", "工作台就绪"],
+                splash._identity_widget.geometry().center().x(),
+                splash.rect().center().x(),
             )
+            roles = {
+                label.property("role") for label in splash.findChildren(QLabel)
+            }
+            self.assertNotIn("splashBadge", roles)
+            self.assertNotIn("splashStage", roles)
         finally:
             splash._programmatic_close = True
             splash.close()
@@ -86,23 +93,20 @@ class EvaluationStartupFlowTests(unittest.TestCase):
         finally:
             _dispose_window(window, self.app)
 
-    def test_workspace_header_exposes_the_four_stage_evaluation_flow(self):
-        from PyQt6.QtWidgets import QLabel
+    def test_main_window_starts_directly_with_three_panel_workspace(self):
+        from PyQt6.QtWidgets import QLabel, QSplitter
         from ui.main_window import MainWindow
 
         window = MainWindow()
         try:
-            self.assertEqual(
-                window.workspace_header.objectName(), "workspaceHeader")
-            steps = [
-                label.text()
-                for label in window.findChildren(QLabel)
-                if label.property("role") == "workflowStep"
-            ]
-            self.assertEqual(
-                steps,
-                ["数据准备", "模型配置", "训练评估", "结果报告"],
-            )
+            central_layout = window.centralWidget().layout()
+            self.assertEqual(central_layout.count(), 1)
+            self.assertIsInstance(central_layout.itemAt(0).widget(), QSplitter)
+            self.assertFalse(hasattr(window, "workspace_header"))
+            roles = {
+                label.property("role") for label in window.findChildren(QLabel)
+            }
+            self.assertNotIn("workflowStep", roles)
         finally:
             _dispose_window(window, self.app)
 
@@ -118,17 +122,11 @@ class EvaluationStartupFlowTests(unittest.TestCase):
         finally:
             _dispose_window(window, self.app)
 
-    def test_workflow_stage_and_run_indicator_follow_evaluation_state(self):
+    def test_run_indicator_follows_evaluation_state(self):
         from ui.main_window import MainWindow
 
         window = MainWindow()
         try:
-            window._set_workflow_stage(2)
-            self.assertEqual(
-                [label.property("state")
-                 for label in window.workflow_step_labels],
-                ["complete", "complete", "active", "idle"],
-            )
             window._set_running_state(True, "正在训练模型")
             self.assertEqual(window.run_status_dot.property("state"), "running")
         finally:

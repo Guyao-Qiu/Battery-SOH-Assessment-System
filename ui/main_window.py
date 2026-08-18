@@ -365,9 +365,6 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(8)
         central.setLayout(main_layout)
 
-        self.workspace_header = self._build_workspace_header()
-        main_layout.addWidget(self.workspace_header)
-
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         left_widget = QWidget()
@@ -395,63 +392,6 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self._set_running_state(False, '准备就绪')
-
-    def _build_workspace_header(self):
-        """构建评估流程头部，让三栏工作区共享同一任务语境。"""
-        header = QFrame()
-        header.setObjectName('workspaceHeader')
-        header.setProperty('role', 'workspaceHeader')
-        header.setFixedHeight(78)
-
-        layout = QHBoxLayout(header)
-        layout.setContentsMargins(18, 10, 16, 10)
-        layout.setSpacing(14)
-
-        identity_layout = QVBoxLayout()
-        identity_layout.setSpacing(1)
-        title = QLabel('电池 SOH 评估工作台')
-        title.setProperty('role', 'workspaceTitle')
-        subtitle = QLabel('容量衰减建模 · 失效循环研判 · 报告留痕')
-        subtitle.setProperty('role', 'workspaceSubtitle')
-        identity_layout.addWidget(title)
-        identity_layout.addWidget(subtitle)
-        layout.addLayout(identity_layout)
-        layout.addStretch(1)
-
-        workflow_layout = QHBoxLayout()
-        workflow_layout.setSpacing(6)
-        self.workflow_step_labels = []
-        for index, text in enumerate(
-                ('数据准备', '模型配置', '训练评估', '结果报告')):
-            step = QLabel(text)
-            step.setProperty('role', 'workflowStep')
-            step.setProperty('state', 'active' if index == 0 else 'idle')
-            step.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            step.setAccessibleName(f'评估流程：{text}')
-            self.workflow_step_labels.append(step)
-            workflow_layout.addWidget(step)
-            if index < 3:
-                connector = QFrame()
-                connector.setProperty('role', 'workflowConnector')
-                connector.setFixedSize(16, 1)
-                workflow_layout.addWidget(connector)
-        layout.addLayout(workflow_layout)
-
-        badge = QLabel('本地研究评估')
-        badge.setProperty('role', 'workspaceBadge')
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(badge)
-        return header
-
-    def _set_workflow_stage(self, active_index):
-        """将已完成、当前和待处理阶段映射到可见的流程状态。"""
-        active_index = max(0, min(3, int(active_index)))
-        for index, label in enumerate(self.workflow_step_labels):
-            state = 'complete' if index < active_index else (
-                'active' if index == active_index else 'idle')
-            label.setProperty('state', state)
-            label.style().unpolish(label)
-            label.style().polish(label)
 
     def build_left_panel(self, parent):
         layout = QVBoxLayout(parent)
@@ -960,10 +900,6 @@ class MainWindow(QMainWindow):
         self.run_status_dot.setProperty('state', 'running' if running else 'idle')
         self.run_status_dot.style().unpolish(self.run_status_dot)
         self.run_status_dot.style().polish(self.run_status_dot)
-        if running:
-            self._set_workflow_stage(2)
-        elif message.startswith('评估完成'):
-            self._set_workflow_stage(3)
         if hasattr(self, 'status_bar'):
             self.status_bar.showMessage(message)
 
@@ -1145,10 +1081,8 @@ class MainWindow(QMainWindow):
         count = len(self.imported_paths)
         if count:
             self.data_summary_label.setText(f'已载入 {count} 项数据 · 队列待评估')
-            self._set_workflow_stage(1)
         else:
             self.data_summary_label.setText('尚未导入数据 · 等待建立评估队列')
-            self._set_workflow_stage(0)
         self.data_summary_label.setProperty(
             'state', 'ready' if count else 'empty')
         self.data_summary_count.setText(str(count))
