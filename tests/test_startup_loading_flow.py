@@ -7,6 +7,14 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
+def _dispose_window(window, app):
+    from matplotlib import pyplot as plt
+
+    plt.close(window.canvas.fig)
+    window.deleteLater()
+    app.processEvents()
+
+
 class StartupSplashProgressTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -27,6 +35,24 @@ class StartupSplashProgressTests(unittest.TestCase):
             self.assertTrue(splash._progress.isTextVisible())
             self.assertEqual(splash._progress.format(), "%p%")
             self.assertEqual(splash._status_label.text(), "正在加载计算组件…")
+        finally:
+            splash._programmatic_close = True
+            splash.close()
+            splash.deleteLater()
+            self.app.processEvents()
+
+    def test_splash_uses_paper_ink_brand_hierarchy(self):
+        from battery_soh_app import _StartupSplash
+
+        splash = _StartupSplash()
+        try:
+            self.assertEqual(splash.objectName(), "startupSplash")
+            self.assertEqual(splash.property("visualWorld"), "paperInk")
+            self.assertEqual(splash._title_label.text(), "电池 SOH 评估系统")
+            self.assertEqual(
+                [label.text() for label in splash._stage_labels],
+                ["数据准备", "模型加载", "工作台就绪"],
+            )
         finally:
             splash._programmatic_close = True
             splash.close()
@@ -58,8 +84,112 @@ class EvaluationStartupFlowTests(unittest.TestCase):
             deep_validation.assert_not_called()
             self.assertEqual(len(started), 1)
         finally:
-            window.deleteLater()
-            self.app.processEvents()
+            _dispose_window(window, self.app)
+
+    def test_workspace_header_exposes_the_four_stage_evaluation_flow(self):
+        from PyQt6.QtWidgets import QLabel
+        from ui.main_window import MainWindow
+
+        window = MainWindow()
+        try:
+            self.assertEqual(
+                window.workspace_header.objectName(), "workspaceHeader")
+            steps = [
+                label.text()
+                for label in window.findChildren(QLabel)
+                if label.property("role") == "workflowStep"
+            ]
+            self.assertEqual(
+                steps,
+                ["数据准备", "模型配置", "训练评估", "结果报告"],
+            )
+        finally:
+            _dispose_window(window, self.app)
+
+    def test_data_summary_tracks_imported_item_count(self):
+        from ui.main_window import MainWindow
+
+        window = MainWindow()
+        try:
+            self.assertIn("尚未导入", window.data_summary_label.text())
+            window.imported_paths = ["cell-a.xlsx", "cell-b.xlsx"]
+            window._update_data_summary()
+            self.assertIn("2 项数据", window.data_summary_label.text())
+        finally:
+            _dispose_window(window, self.app)
+
+    def test_workflow_stage_and_run_indicator_follow_evaluation_state(self):
+        from ui.main_window import MainWindow
+
+        window = MainWindow()
+        try:
+            window._set_workflow_stage(2)
+            self.assertEqual(
+                [label.property("state")
+                 for label in window.workflow_step_labels],
+                ["complete", "complete", "active", "idle"],
+            )
+            window._set_running_state(True, "正在训练模型")
+            self.assertEqual(window.run_status_dot.property("state"), "running")
+        finally:
+            _dispose_window(window, self.app)
+
+    def test_model_selection_surfaces_model_explanation(self):
+        from ui.main_window import MainWindow
+
+        window = MainWindow()
+        try:
+            window.select_mode("XGBoost")
+            self.assertIn("梯度提升树", window.model_hint_label.text())
+        finally:
+            _dispose_window(window, self.app)
+
+    def test_result_state_uses_structured_title_detail_and_guidance(self):
+        from PyQt6.QtWidgets import QApplication, QFrame, QLabel
+        from ui.main_window import MainWindow
+
+        window = MainWindow()
+        try:
+            window._show_result_state("等待评估结果", "导入数据后显示。")
+            roles = {
+                label.property("role")
+                for label in window.result_container.findChildren(QLabel)
+            }
+            self.assertTrue(
+                {"resultStateTitle", "resultStateDetail", "resultStateGuide"}
+                <= roles
+            )
+            frame_roles = {
+                frame.property("role")
+                for frame in window.result_container.findChildren(QFrame)
+            }
+            self.assertTrue(
+                {"resultStateBattery", "resultStateBatteryFill"}
+                <= frame_roles
+            )
+            self.assertEqual(
+                window.result_container.property("role"), "resultContainer")
+            self.assertIn(
+                'QWidget[role="resultContainer"]',
+                QApplication.instance().styleSheet(),
+            )
+        finally:
+            _dispose_window(window, self.app)
+
+    def test_result_state_guidance_matches_running_analysis(self):
+        from PyQt6.QtWidgets import QLabel
+        from ui.main_window import MainWindow
+
+        window = MainWindow()
+        try:
+            window._show_result_state("正在分析电池数据", "训练日志持续更新。")
+            guide = next(
+                label for label in window.result_container.findChildren(QLabel)
+                if label.property("role") == "resultStateGuide"
+            )
+            self.assertEqual(guide.text(), "读取数据 · 训练模型 · 生成指标")
+        finally:
+            _dispose_window(window, self.app)
 
 
 if __name__ == "__main__":

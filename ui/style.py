@@ -48,12 +48,17 @@ COMBO_DOWN_ARROW_URL = (
 
 # ── 字体族 ──────────────────────────────────────────────────
 FONT_FAMILY = '"Segoe UI", "Microsoft YaHei", "PingFang SC", "Helvetica Neue", sans-serif'
+FONT_DISPLAY = '"STZhongsong", "FangSong", "Microsoft YaHei", serif'
 FONT_MONO   = '"JetBrains Mono", "Cascadia Code", "Consolas", monospace'
 
 
 def _font(size=10, weight='normal', mono=False):
     family = FONT_MONO if mono else FONT_FAMILY
     return f'font-family: {family}; font-size: {size}pt; font-weight: {weight};'
+
+
+def _display_font(size=10, weight='normal'):
+    return f'font-family: {FONT_DISPLAY}; font-size: {size}pt; font-weight: {weight};'
 
 
 # ── 主题 QSS ────────────────────────────────────────────────
@@ -120,6 +125,148 @@ QLabel[role="emptyState"] {{
     border: 1px dashed {COLORS['border']};
     border-radius: 10px;
     padding: 24px 18px;
+}}
+
+/* ── 工作台任务语境 ───────────────────────────── */
+QFrame#workspaceHeader {{
+    background: {COLORS['bg_surface']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 8px;
+}}
+QLabel[role="workspaceTitle"] {{
+    {_display_font(16, 'bold')}
+    color: {COLORS['primary_d']};
+    letter-spacing: 1px;
+}}
+QLabel[role="workspaceSubtitle"] {{
+    {_font(8)}
+    color: {COLORS['text_muted']};
+    letter-spacing: 0.5px;
+}}
+QLabel[role="workflowStep"] {{
+    {_font(9, '600')}
+    color: {COLORS['text_muted']};
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 11px;
+    padding: 4px 9px;
+    min-width: 58px;
+}}
+QLabel[role="workflowStep"][state="active"] {{
+    color: {COLORS['on_accent']};
+    background: {COLORS['primary']};
+    border-color: {COLORS['primary_d']};
+}}
+QLabel[role="workflowStep"][state="complete"] {{
+    color: {COLORS['primary_d']};
+    background: rgba(49, 91, 90, 0.08);
+    border-color: {COLORS['primary_l']};
+}}
+QFrame[role="workflowConnector"] {{
+    background: {COLORS['border_soft']};
+    border: none;
+}}
+QLabel[role="workspaceBadge"] {{
+    {_font(8, 'bold')}
+    color: {COLORS['warning']};
+    background: rgba(152, 101, 46, 0.08);
+    border: 1px solid {COLORS['warning']};
+    border-radius: 9px;
+    padding: 4px 8px;
+}}
+
+QFrame[role="dataSummary"] {{
+    background: rgba(49, 91, 90, 0.06);
+    border: 1px solid {COLORS['border_soft']};
+    border-radius: 6px;
+}}
+QLabel[role="dataSummaryText"] {{
+    {_font(8)}
+    color: {COLORS['text_muted']};
+}}
+QLabel[role="dataSummaryText"][state="ready"] {{
+    color: {COLORS['primary_d']};
+}}
+QLabel[role="dataSummaryCount"] {{
+    {_font(11, 'bold', mono=True)}
+    color: {COLORS['on_accent']};
+    background: {COLORS['primary']};
+    border: 1px solid {COLORS['primary_d']};
+    border-radius: 11px;
+    min-width: 22px;
+    min-height: 22px;
+}}
+
+QFrame[role="modelShelf"] {{
+    background: {COLORS['bg_base']};
+    border: 1px solid {COLORS['border_soft']};
+    border-radius: 7px;
+}}
+QLabel[role="modelHint"] {{
+    {_font(8)}
+    color: {COLORS['text_muted']};
+}}
+
+QFrame[role="runStatusStrip"] {{
+    background: {COLORS['bg_surface']};
+    border: 1px solid {COLORS['border_soft']};
+    border-radius: 6px;
+}}
+QFrame[role="runStatusDot"] {{
+    background: {COLORS['bg_elevated']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 5px;
+}}
+QFrame[role="runStatusDot"][state="running"] {{
+    background: {COLORS['primary']};
+    border-color: {COLORS['primary_d']};
+}}
+QFrame[role="runStatusStrip"] QLabel[role="runStatus"] {{
+    background: transparent;
+    border: none;
+    padding: 2px 0;
+}}
+QLabel[role="runContext"] {{
+    {_font(8)}
+    color: {COLORS['text_dim']};
+}}
+
+QFrame[role="resultState"] {{
+    background: {COLORS['bg_base']};
+    border: 1px dashed {COLORS['border']};
+    border-radius: 10px;
+}}
+QFrame[role="resultStateBattery"] {{
+    background: transparent;
+    border: 1px solid {COLORS['primary']};
+    border-radius: 5px;
+}}
+QFrame[role="resultStateBatteryFill"] {{
+    background: rgba(49, 91, 90, 0.18);
+    border: 1px solid {COLORS['primary_l']};
+    border-radius: 2px;
+}}
+QFrame[role="resultStateBatteryTerminal"] {{
+    background: {COLORS['primary']};
+    border: none;
+    border-radius: 2px;
+}}
+QLabel[role="resultStateTitle"] {{
+    {_display_font(12, 'bold')}
+    color: {COLORS['primary_d']};
+    letter-spacing: 0.5px;
+}}
+QLabel[role="resultStateDetail"] {{
+    {_font(9)}
+    color: {COLORS['text_muted']};
+}}
+QLabel[role="resultStateGuide"] {{
+    {_font(8, '600')}
+    color: {COLORS['warning']};
+    background: rgba(152, 101, 46, 0.07);
+    border: 1px solid {COLORS['border_soft']};
+    border-radius: 8px;
+    padding: 4px 9px;
 }}
 
 /* ── 分组框 ───────────────────────────────────── */
@@ -447,6 +594,9 @@ QSplitter::handle:hover {{
 QScrollArea {{
     background: transparent;
     border: none;
+}}
+QWidget[role="resultContainer"] {{
+    background: {COLORS['bg_base']};
 }}
 QScrollBar:vertical {{
     background: transparent;

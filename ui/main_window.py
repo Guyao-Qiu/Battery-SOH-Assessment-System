@@ -365,6 +365,9 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(8)
         central.setLayout(main_layout)
 
+        self.workspace_header = self._build_workspace_header()
+        main_layout.addWidget(self.workspace_header)
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         left_widget = QWidget()
@@ -393,6 +396,63 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self._set_running_state(False, '准备就绪')
 
+    def _build_workspace_header(self):
+        """构建评估流程头部，让三栏工作区共享同一任务语境。"""
+        header = QFrame()
+        header.setObjectName('workspaceHeader')
+        header.setProperty('role', 'workspaceHeader')
+        header.setFixedHeight(78)
+
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(18, 10, 16, 10)
+        layout.setSpacing(14)
+
+        identity_layout = QVBoxLayout()
+        identity_layout.setSpacing(1)
+        title = QLabel('电池 SOH 评估工作台')
+        title.setProperty('role', 'workspaceTitle')
+        subtitle = QLabel('容量衰减建模 · 失效循环研判 · 报告留痕')
+        subtitle.setProperty('role', 'workspaceSubtitle')
+        identity_layout.addWidget(title)
+        identity_layout.addWidget(subtitle)
+        layout.addLayout(identity_layout)
+        layout.addStretch(1)
+
+        workflow_layout = QHBoxLayout()
+        workflow_layout.setSpacing(6)
+        self.workflow_step_labels = []
+        for index, text in enumerate(
+                ('数据准备', '模型配置', '训练评估', '结果报告')):
+            step = QLabel(text)
+            step.setProperty('role', 'workflowStep')
+            step.setProperty('state', 'active' if index == 0 else 'idle')
+            step.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            step.setAccessibleName(f'评估流程：{text}')
+            self.workflow_step_labels.append(step)
+            workflow_layout.addWidget(step)
+            if index < 3:
+                connector = QFrame()
+                connector.setProperty('role', 'workflowConnector')
+                connector.setFixedSize(16, 1)
+                workflow_layout.addWidget(connector)
+        layout.addLayout(workflow_layout)
+
+        badge = QLabel('本地研究评估')
+        badge.setProperty('role', 'workspaceBadge')
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(badge)
+        return header
+
+    def _set_workflow_stage(self, active_index):
+        """将已完成、当前和待处理阶段映射到可见的流程状态。"""
+        active_index = max(0, min(3, int(active_index)))
+        for index, label in enumerate(self.workflow_step_labels):
+            state = 'complete' if index < active_index else (
+                'active' if index == active_index else 'idle')
+            label.setProperty('state', state)
+            label.style().unpolish(label)
+            label.style().polish(label)
+
     def build_left_panel(self, parent):
         layout = QVBoxLayout(parent)
         layout.setContentsMargins(0, 0, 6, 0)
@@ -418,6 +478,22 @@ class MainWindow(QMainWindow):
         _configure_button_row(btn_row, (self.import_btn, self.import_dir_btn))
 
         file_layout.addLayout(btn_row)
+
+        data_summary = QFrame()
+        data_summary.setProperty('role', 'dataSummary')
+        data_summary_layout = QHBoxLayout(data_summary)
+        data_summary_layout.setContentsMargins(10, 7, 10, 7)
+        data_summary_layout.setSpacing(8)
+        self.data_summary_label = QLabel()
+        self.data_summary_label.setProperty('role', 'dataSummaryText')
+        self.data_summary_label.setWordWrap(True)
+        self.data_summary_count = QLabel('0')
+        self.data_summary_count.setProperty('role', 'dataSummaryCount')
+        self.data_summary_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        data_summary_layout.addWidget(self.data_summary_label, 1)
+        data_summary_layout.addWidget(self.data_summary_count)
+        file_layout.addWidget(data_summary)
+        self._update_data_summary()
 
         self.import_list = QListWidget()
         self.import_list.setAccessibleName('已导入的数据文件和文件夹')
@@ -671,11 +747,25 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(6, 0, 6, 0)
         layout.setSpacing(8)
 
-        btn_layout = QHBoxLayout()
+        model_shelf = QFrame()
+        model_shelf.setProperty('role', 'modelShelf')
+        model_shelf_layout = QVBoxLayout(model_shelf)
+        model_shelf_layout.setContentsMargins(10, 7, 10, 9)
+        model_shelf_layout.setSpacing(6)
+
+        model_header_layout = QHBoxLayout()
         model_label = QLabel('选择评估模型')
         model_label.setProperty('role', 'sectionTitle')
-        btn_layout.addWidget(model_label)
-        btn_layout.addSpacing(6)
+        self.model_hint_label = QLabel()
+        self.model_hint_label.setProperty('role', 'modelHint')
+        self.model_hint_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        model_header_layout.addWidget(model_label)
+        model_header_layout.addStretch(1)
+        model_header_layout.addWidget(self.model_hint_label)
+        model_shelf_layout.addLayout(model_header_layout)
+
+        btn_layout = QHBoxLayout()
         self.rnn_btn = AnimatedButton('RNN', 'model')
         self.gru_btn = AnimatedButton('GRU', 'model')
         self.lstm_btn = AnimatedButton('LSTM', 'model')
@@ -693,6 +783,7 @@ class MainWindow(QMainWindow):
             (self.rnn_btn, self.gru_btn, self.lstm_btn,
              self.xgboost_btn, self.rf_btn),
             spacing=6)
+        model_shelf_layout.addLayout(btn_layout)
 
         action_layout = QHBoxLayout()
 
@@ -736,16 +827,33 @@ class MainWindow(QMainWindow):
         self.run_status_label.setProperty('state', 'idle')
         self.run_status_label.setAccessibleName('评估运行状态')
 
+        run_status_strip = QFrame()
+        run_status_strip.setProperty('role', 'runStatusStrip')
+        run_status_layout = QHBoxLayout(run_status_strip)
+        run_status_layout.setContentsMargins(10, 5, 10, 5)
+        run_status_layout.setSpacing(8)
+        self.run_status_dot = QFrame()
+        self.run_status_dot.setProperty('role', 'runStatusDot')
+        self.run_status_dot.setProperty('state', 'idle')
+        self.run_status_dot.setFixedSize(10, 10)
+        self.run_status_dot.setAccessibleName('评估状态指示')
+        run_status_layout.addWidget(self.run_status_dot)
+        run_status_layout.addWidget(self.run_status_label, 1)
+
+        context_label = QLabel('当前模型与参数仅在本地运行')
+        context_label.setProperty('role', 'runContext')
+        run_status_layout.addWidget(context_label)
+
         self.canvas = MplCanvas()
         self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.canvas.setToolTip('双击图表可进入独立全屏查看，按 Esc 退出')
 
         self.toolbar = CustomToolbar(self.canvas, self)
 
-        layout.addLayout(btn_layout)
+        layout.addWidget(model_shelf)
         layout.addLayout(io_layout)
         layout.addLayout(action_layout)
-        layout.addWidget(self.run_status_label)
+        layout.addWidget(run_status_strip)
         layout.addWidget(self.progress_bar)
         layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas, 1)
@@ -763,6 +871,7 @@ class MainWindow(QMainWindow):
         self.result_scroll = QScrollArea()
         self.result_scroll.setWidgetResizable(True)
         self.result_container = QWidget()
+        self.result_container.setProperty('role', 'resultContainer')
         self.result_container_layout = QVBoxLayout(self.result_container)
         self.result_container_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.result_container_layout.setSpacing(8)
@@ -848,6 +957,13 @@ class MainWindow(QMainWindow):
         self.run_status_label.setProperty('state', 'running' if running else 'idle')
         self.run_status_label.style().unpolish(self.run_status_label)
         self.run_status_label.style().polish(self.run_status_label)
+        self.run_status_dot.setProperty('state', 'running' if running else 'idle')
+        self.run_status_dot.style().unpolish(self.run_status_dot)
+        self.run_status_dot.style().polish(self.run_status_dot)
+        if running:
+            self._set_workflow_stage(2)
+        elif message.startswith('评估完成'):
+            self._set_workflow_stage(3)
         if hasattr(self, 'status_bar'):
             self.status_bar.showMessage(message)
 
@@ -860,6 +976,14 @@ class MainWindow(QMainWindow):
         }
         for m, btn in buttons.items():
             btn.set_active(m == selected_mode)
+        descriptions = {
+            'RNN': '循环神经网络 · 时序基线',
+            'GRU': '门控循环单元 · 轻量时序',
+            'LSTM': '长短期记忆网络 · 长程依赖',
+            'XGBoost': '梯度提升树 · 表格特征',
+            'RF': '随机森林 · 稳健集成',
+        }
+        self.model_hint_label.setText(descriptions[selected_mode])
         self._update_param_panel(selected_mode)
         if self._help_dialog is not None and self._help_dialog.isVisible():
             self._help_dialog.set_content(selected_mode)
@@ -899,6 +1023,7 @@ class MainWindow(QMainWindow):
             self.imported_paths.append(path)
             display = os.path.basename(path)
             self.import_list.addItem(display)
+        self._update_data_summary()
 
     def import_folder(self):
         dlg = QFileDialog(self, '选择电池数据文件夹')
@@ -927,6 +1052,7 @@ class MainWindow(QMainWindow):
             folder_name = os.path.basename(folder.rstrip('/\\'))
             display = f'{folder_name}（{total}）'
             self.import_list.addItem(display)
+        self._update_data_summary()
 
     def import_json_config(self):
         file_path, _ = QFileDialog.getOpenFileName(self, '导入 JSON 配置文件', '', 'JSON 文件 (*.json)')
@@ -1012,6 +1138,24 @@ class MainWindow(QMainWindow):
             self.import_list.takeItem(row)
             if row < len(self.imported_paths):
                 del self.imported_paths[row]
+        self._update_data_summary()
+
+    def _update_data_summary(self):
+        """同步数据队列摘要，不在狭窄列表中重复堆叠状态信息。"""
+        count = len(self.imported_paths)
+        if count:
+            self.data_summary_label.setText(f'已载入 {count} 项数据 · 队列待评估')
+            self._set_workflow_stage(1)
+        else:
+            self.data_summary_label.setText('尚未导入数据 · 等待建立评估队列')
+            self._set_workflow_stage(0)
+        self.data_summary_label.setProperty(
+            'state', 'ready' if count else 'empty')
+        self.data_summary_count.setText(str(count))
+        self.data_summary_count.setAccessibleName(f'已导入 {count} 项数据')
+        for widget in (self.data_summary_label, self.data_summary_count):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
 
     def append_log(self, text):
         cursor = self.log_text.textCursor()
@@ -1637,18 +1781,56 @@ class MainWindow(QMainWindow):
     def _show_result_state(self, title, detail):
         """在结果区呈现空、加载、停止或错误状态。"""
         self.clear_result_display()
-        state_label = QLabel(f'<b>{title}</b><br><span>{detail}</span>')
-        state_label.setProperty('role', 'emptyState')
-        state_label.setWordWrap(True)
-        state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        state_label.setAccessibleName(f'{title}。{detail}')
-        self.result_container_layout.addWidget(state_label)
+        state = QFrame()
+        state.setProperty('role', 'resultState')
+        state_layout = QVBoxLayout(state)
+        state_layout.setContentsMargins(20, 24, 20, 22)
+        state_layout.setSpacing(8)
+
+        mark = QWidget()
+        mark.setFixedSize(56, 40)
+        battery = QFrame(mark)
+        battery.setProperty('role', 'resultStateBattery')
+        battery.setGeometry(3, 5, 44, 30)
+        battery_fill = QFrame(battery)
+        battery_fill.setProperty('role', 'resultStateBatteryFill')
+        battery_fill.setGeometry(4, 4, 27, 20)
+        battery_terminal = QFrame(mark)
+        battery_terminal.setProperty('role', 'resultStateBatteryTerminal')
+        battery_terminal.setGeometry(47, 14, 6, 12)
+        state_layout.addWidget(mark, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        title_label = QLabel(title)
+        title_label.setProperty('role', 'resultStateTitle')
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setWordWrap(True)
+        detail_label = QLabel(detail)
+        detail_label.setProperty('role', 'resultStateDetail')
+        detail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        detail_label.setWordWrap(True)
+        guide_text = (
+            '读取数据 · 训练模型 · 生成指标'
+            if title.startswith('正在')
+            else '导入数据 · 校准参数 · 开始评估'
+        )
+        guide_label = QLabel(guide_text)
+        guide_label.setProperty('role', 'resultStateGuide')
+        guide_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        state_layout.addWidget(title_label)
+        state_layout.addWidget(detail_label)
+        state_layout.addSpacing(3)
+        state_layout.addWidget(guide_label)
+        state.setAccessibleName(f'{title}。{detail}')
+        self.result_container_layout.addWidget(state)
 
     def clear_result_display(self):
         while self.result_container_layout.count():
             child = self.result_container_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            widget = child.widget()
+            if widget:
+                widget.setParent(None)
+                widget.deleteLater()
 
     def update_result_table(self, detail_list, elapsed):
         self.clear_result_display()
