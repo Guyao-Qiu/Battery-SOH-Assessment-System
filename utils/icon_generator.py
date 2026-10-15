@@ -2,12 +2,14 @@
 图标生成器：app 图标 + 各对话框个性化图标 + QMessageBox 统一封装
 
 设计原则：
-  - 与深色 Quantum Lab 主题协调：所有线条使用 slate-400 (#94A3B8)，
-    既不会在深色背景上"被吞掉"，也不会刺眼
+  - 颜色只有一个来源：工程根目录的 ``theme_tokens.py``。线条取主题的淡墨色，
+    状态点取语义色，浅色（宣纸）/ 深色（墨夜）自动跟随，不再自带调色板
   - 状态类图标（错误/警告/成功/信息）右下角叠加小色点作为语义提示，
     但保持低饱和度，避免抢眼
   - 同一图标仅生成一次并缓存，重复调用零开销
 """
+import sys
+
 from PyQt6.QtCore import Qt, QRectF, QPointF, QSize
 from PyQt6.QtGui import (
     QPainter, QPen, QBrush, QColor, QLinearGradient, QPainterPath,
@@ -15,19 +17,56 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QMessageBox
 
+from theme_tokens import get_theme
 
-# ─── 调色板（与 style.py / 主题一致） ─────────────────────────
-_LINE_COLOR   = QColor(148, 163, 184)   # #94A3B8 slate-400（线条主色）
+
+# ─── 调色板（token 名，取值全部来自 theme_tokens） ────────────
 _LINE_STROKE  = 2.2                     # 对话框图标的描边略粗，便于在标题栏中识别
 _ACCENT_STROKE = 2.4
 _ACCENT_R     = 4.0                     # 角落小色点半径
 
-_ACCENT_CYAN    = QColor(34, 211, 238)  # #22D3EE info / 通用
-_ACCENT_CYAN_D  = QColor(6, 182, 212)   # #06B6D4
-_ACCENT_EMERALD = QColor(16, 185, 129)  # #10B981 success
-_ACCENT_AMBER   = QColor(245, 158, 11)  # #F59E0B warning
-_ACCENT_RED     = QColor(239, 68, 68)   # #EF4444 error
-_ACCENT_VIOLET  = QColor(139, 92, 246)  # #8B5CF6 model / NN
+#: 线条主色所用的 token：淡墨，浅 / 深主题下都不会被背景吞掉。
+_LINE_COLOR_KEY = 'text_muted'
+
+#: 状态点 / 强调色所用的语义 token。
+_ACCENT_INFO    = 'primary'     # info / 通用
+_ACCENT_INFO_D  = 'primary_d'   # 次要强调（坐标轴、图表）
+_ACCENT_SUCCESS = 'success'
+_ACCENT_WARNING = 'warning'
+_ACCENT_DANGER  = 'danger'
+_ACCENT_MODEL   = 'primary_d'   # model / NN
+
+#: 本模块记录的主题模式，仅在拿不到 ``ui.style`` 时兜底。
+_current_theme_mode = 'light'
+
+
+def set_icon_theme(mode):
+    """设置图标生成器跟随的主题（``'light'`` / ``'dark'``）。"""
+    global _current_theme_mode
+    _current_theme_mode = str(mode).strip().lower()
+
+
+def _tokens():
+    """当前主题 token：优先问**已加载**的 ``ui.style``。
+
+    这里刻意用 ``sys.modules`` 而不是 ``import ui.style``：``ui/__init__.py``
+    会连带导入 main_window（进而 torch / matplotlib），而图标必须在启动早期
+    就能画出来，所以本模块不主动触发 ``ui`` 包的导入；``ui.style`` 尚未加载时
+    回退到 :func:`set_icon_theme` 记录的模式。
+    """
+    style = sys.modules.get('ui.style')
+    if style is not None:
+        try:
+            return style.theme_tokens()
+        except (AttributeError, KeyError, ImportError):
+            # ui.style 已加载但没有 theme_tokens（例如版本不匹配）时回退
+            return get_theme(_current_theme_mode)
+    return get_theme(_current_theme_mode)
+
+
+def _color(token):
+    """token 名 → QColor（token 里的 ``'#RRGGBB'`` 可直接构造 QColor）。"""
+    return QColor(_tokens()[token])
 
 
 # ─── 1. App 图标（电池 + 心电图风格的 SOH 曲线） ─────────────
@@ -58,7 +97,7 @@ def _create_battery_icon(size=256):
     terminal_path = QPainterPath()
     terminal_rect = QRectF(terminal_left, terminal_top, terminal_w, terminal_h)
     terminal_path.addRoundedRect(terminal_rect, s * 0.02, s * 0.02)
-    painter.fillPath(terminal_path, QColor('#64748B'))
+    painter.fillPath(terminal_path, _color('border'))
 
     # 内部绿色渐变填充（健康→衰减）
     fill_margin = s * 0.025
@@ -70,15 +109,15 @@ def _create_battery_icon(size=256):
     fill_rect = QRectF(fill_left, fill_top, fill_w, fill_h)
 
     gradient = QLinearGradient(fill_rect.topLeft(), fill_rect.bottomLeft())
-    gradient.setColorAt(0.0, QColor('#4ADE80'))
-    gradient.setColorAt(0.6, QColor('#22C55E'))
-    gradient.setColorAt(1.0, QColor('#16A34A'))
+    gradient.setColorAt(0.0, _color('success_l'))
+    gradient.setColorAt(0.6, _color('success'))
+    gradient.setColorAt(1.0, _color('success_d'))
     fill_path = QPainterPath()
     fill_path.addRoundedRect(fill_rect, fill_radius, fill_radius)
     painter.fillPath(fill_path, gradient)
 
-    # 内部 SOH 退化曲线（白色折线，从左上降到右下）
-    curve_pen = QPen(QColor('#FFFFFF'), max(2.0, s * 0.018))
+    # 内部 SOH 退化曲线（浅色折线，从左上降到右下）
+    curve_pen = QPen(_color('on_accent'), max(2.0, s * 0.018))
     curve_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     curve_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     painter.setPen(curve_pen)
@@ -94,13 +133,13 @@ def _create_battery_icon(size=256):
     # 主体外框
     body_path = QPainterPath()
     body_path.addRoundedRect(body_rect, body_radius, body_radius)
-    pen = QPen(QColor('#475569'), s * 0.025)
+    pen = QPen(_color('text_muted'), s * 0.025)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     painter.setPen(pen)
     painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.drawPath(body_path)
 
-    pen2 = QPen(QColor('#475569'), s * 0.022)
+    pen2 = QPen(_color('text_muted'), s * 0.022)
     painter.setPen(pen2)
     painter.drawPath(terminal_path)
 
@@ -145,7 +184,7 @@ def _new_dialog_pixmap(draw_func, accent=None):
     pix.fill(Qt.GlobalColor.transparent)
     p = QPainter(pix)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setPen(QPen(_LINE_COLOR, _LINE_STROKE))
+    p.setPen(QPen(_color(_LINE_COLOR_KEY), _LINE_STROKE))
     p.setBrush(Qt.BrushStyle.NoBrush)
     draw_func(p, _DIALOG_SIZE.width(), accent)
     p.end()
@@ -302,16 +341,16 @@ def _draw_color(p, s, accent):
     p.drawEllipse(QPointF(cx + r * 0.45, cy + r * 0.20), r * 0.18, r * 0.18)
     # 色点
     p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(_ACCENT_RED)
+    p.setBrush(_color(_ACCENT_DANGER))
     p.drawEllipse(QPointF(cx - r * 0.45, cy - r * 0.35), 3, 3)
-    p.setBrush(_ACCENT_AMBER)
+    p.setBrush(_color(_ACCENT_WARNING))
     p.drawEllipse(QPointF(cx - r * 0.10, cy - r * 0.65), 3, 3)
-    p.setBrush(_ACCENT_EMERALD)
+    p.setBrush(_color(_ACCENT_SUCCESS))
     p.drawEllipse(QPointF(cx + r * 0.30, cy - r * 0.45), 3, 3)
-    p.setBrush(_ACCENT_CYAN)
+    p.setBrush(_color(_ACCENT_INFO))
     p.drawEllipse(QPointF(cx + r * 0.55, cy + r * 0.05), 3, 3)
     p.setBrush(Qt.BrushStyle.NoBrush)
-    p.setPen(QPen(_LINE_COLOR, _LINE_STROKE))
+    p.setPen(QPen(_color(_LINE_COLOR_KEY), _LINE_STROKE))
     _accent_dot(p, accent, s - 7, 7)
 
 
@@ -329,7 +368,7 @@ def _draw_line(p, s, accent):
     pen.setStyle(Qt.PenStyle.DotLine)
     p.setPen(pen)
     p.drawLine(int(m), int(s * 0.74), int(s - m), int(s * 0.74))
-    p.setPen(QPen(_LINE_COLOR, _LINE_STROKE))
+    p.setPen(QPen(_color(_LINE_COLOR_KEY), _LINE_STROKE))
     _accent_dot(p, accent, s - 7, 7)
 
 
@@ -374,7 +413,7 @@ def _draw_axis(p, s, accent):
             QPointF(s * 0.75, s * 0.32),
             QPointF(s - m - 3, s * 0.45),
         ])
-        p.setPen(QPen(_LINE_COLOR, _LINE_STROKE))
+        p.setPen(QPen(_color(_LINE_COLOR_KEY), _LINE_STROKE))
     _accent_dot(p, accent, s - 7, 7)
 
 
@@ -383,7 +422,8 @@ def _draw_legend(p, s, accent):
     m = s * 0.20
     p.drawRect(int(m), int(m), int(s - 2 * m), int(s - 2 * m))
     # 三行色块 + 文本线
-    rows = [(0.18, _ACCENT_CYAN), (0.45, _ACCENT_EMERALD), (0.72, _ACCENT_AMBER)]
+    rows = [(0.18, _color(_ACCENT_INFO)), (0.45, _color(_ACCENT_SUCCESS)),
+            (0.72, _color(_ACCENT_WARNING))]
     for ry, color in rows:
         y = int(m + (s - 2 * m) * ry)
         p.fillRect(int(m + 4), y, int(s * 0.16), 4, color)
@@ -409,7 +449,7 @@ def _draw_chart(p, s, accent):
         QPointF(s * 0.70, s * 0.30),
         QPointF(s - m - 2, s * 0.45),
     ])
-    p.setPen(QPen(_LINE_COLOR, _LINE_STROKE))
+    p.setPen(QPen(_color(_LINE_COLOR_KEY), _LINE_STROKE))
     _accent_dot(p, accent, s - 7, 7)
 
 
@@ -435,7 +475,7 @@ def _draw_model(p, s, accent):
             p.drawLine(QPointF(mid_x, y1), QPointF(right_x, y2))
 
     # 节点
-    p.setPen(QPen(_LINE_COLOR, _LINE_STROKE))
+    p.setPen(QPen(_color(_LINE_COLOR_KEY), _LINE_STROKE))
     for x, ys in [(left_x, left_ys), (mid_x, mid_ys), (right_x, right_ys)]:
         for y in ys:
             p.drawEllipse(QPointF(x, y), 3.2, 3.2)
@@ -510,33 +550,33 @@ _DIALOG_DRAW_FUNCS = {
     'export':      _draw_export,
 }
 
-# 状态 → 角落小色点（柔和，不抢眼）
+# 状态 → 角落小色点（柔和，不抢眼）；值仍是 token 名，绘制时才取色
 _ACCENT_FOR_KIND = {
-    'help':        _ACCENT_CYAN,
-    'tcp':         _ACCENT_CYAN,
-    'error':       _ACCENT_RED,
-    'warning':     _ACCENT_AMBER,
-    'info':        _ACCENT_CYAN,
-    'success':     _ACCENT_EMERALD,
-    'question':    _ACCENT_CYAN,
-    'folder':      _ACCENT_CYAN,
-    'save':        _ACCENT_CYAN,
-    'color':       _ACCENT_CYAN,
-    'line':        _ACCENT_CYAN,
-    'subplot':     _ACCENT_CYAN,
-    'axis':        _ACCENT_CYAN_D,
-    'legend':      _ACCENT_CYAN,
-    'chart':       _ACCENT_CYAN_D,
-    'model':       _ACCENT_VIOLET,
-    'import':      _ACCENT_CYAN,
-    'export':      _ACCENT_EMERALD,
+    'help':        _ACCENT_INFO,
+    'tcp':         _ACCENT_INFO,
+    'error':       _ACCENT_DANGER,
+    'warning':     _ACCENT_WARNING,
+    'info':        _ACCENT_INFO,
+    'success':     _ACCENT_SUCCESS,
+    'question':    _ACCENT_INFO,
+    'folder':      _ACCENT_INFO,
+    'save':        _ACCENT_INFO,
+    'color':       _ACCENT_INFO,
+    'line':        _ACCENT_INFO,
+    'subplot':     _ACCENT_INFO,
+    'axis':        _ACCENT_INFO_D,
+    'legend':      _ACCENT_INFO,
+    'chart':       _ACCENT_INFO_D,
+    'model':       _ACCENT_MODEL,
+    'import':      _ACCENT_INFO,
+    'export':      _ACCENT_SUCCESS,
 }
 
 _dialog_icon_cache = {}
 
 
 def get_dialog_icon(kind):
-    """根据对话框类型返回对应的 QIcon（带缓存）。
+    """根据对话框类型返回对应的 QIcon（按主题 + kind 缓存）。
 
     支持的 kind：
       app / help / tcp / error / warning / info / success / question /
@@ -545,12 +585,15 @@ def get_dialog_icon(kind):
     """
     if kind == 'app':
         return get_app_icon()
-    if kind not in _dialog_icon_cache:
-        accent = _ACCENT_FOR_KIND.get(kind)
+    # 主题不同则像素不同，缓存键必须带上主题，否则切换明暗后会残留旧色。
+    key = (id(_tokens()), kind)
+    if key not in _dialog_icon_cache:
+        token = _ACCENT_FOR_KIND.get(kind)
+        accent = _color(token) if token else None
         fn = _DIALOG_DRAW_FUNCS[kind]
         pix = _new_dialog_pixmap(fn, accent)
-        _dialog_icon_cache[kind] = QIcon(pix)
-    return _dialog_icon_cache[kind]
+        _dialog_icon_cache[key] = QIcon(pix)
+    return _dialog_icon_cache[key]
 
 
 # 简化别名：只取回 pixmap（用于 QMessageBox.setIconPixmap）

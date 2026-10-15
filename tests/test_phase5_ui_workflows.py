@@ -81,6 +81,13 @@ class Phase5UiWorkflowTests(unittest.TestCase):
         self.assertEqual(self.window.import_list.count(), 3)
 
     def _set_fast_common_controls(self):
+        self.window.adapter_combo.setCurrentIndex(
+            self.window.adapter_combo.findData("CALCE"))
+        for step_input, value in (
+                (self.window.cc_step_input, 2),
+                (self.window.cv_step_input, 4),
+                (self.window.discharge_step_input, 7)):
+            step_input.setText(str(value))
         self.window.feature_size_spin.setValue(2)
         self.window.n_seeds_spin.setValue(1)
         self.window.norm_combo.setCurrentText("MinMax")
@@ -103,7 +110,12 @@ class Phase5UiWorkflowTests(unittest.TestCase):
         self.assertEqual(list(snapshot.results_dict()),
                          ["cell_a", "cell_b", "cell_c"])
         self.assertEqual(self.window.current_mode, "RF")
-        self.assertEqual(self.window.result_container_layout.count(), 3)
+        # U1：结果区改为可排序表格。3 块电池 → 3 行数据 + 3 行经验基线 + 1 行汇总
+        rows = self.window.result_model.rows()
+        self.assertEqual(
+            len([r for r in rows if not r.get('is_baseline')]), 3)
+        self.assertEqual(len(self.window.result_model.display_rows()),
+                         len(rows) + 1)
         self.assertTrue(self.window.export_btn.isEnabled())
         self.assertIsNotNone(self.window.final_trained_model)
 
@@ -176,7 +188,12 @@ class Phase5UiWorkflowTests(unittest.TestCase):
                 results = self.window._last_run_snapshot.results_dict()
                 self.assertEqual(list(results),
                                  ["cell_a", "cell_b", "cell_c"])
-                self.assertEqual(self.window.result_container_layout.count(), 3)
+                # U1：3 块电池各一行（另有基线与汇总行）
+                battery_rows = [
+                    row for row in self.window.result_model.rows()
+                    if not row.get('is_baseline')
+                ]
+                self.assertEqual(len(battery_rows), 3)
                 for result in results.values():
                     detail = result["detail"]
                     for metric in ("rmse", "mae", "r2", "pearson", "re"):

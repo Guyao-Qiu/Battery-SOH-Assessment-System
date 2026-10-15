@@ -74,6 +74,24 @@ class Phase5GoldenDatasetTests(unittest.TestCase):
                         batteries["golden"]["capacity"], expected,
                         rtol=1e-6)
 
+    def test_calce_folder_rebases_per_file_cycle_resets(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "cell"
+            root.mkdir()
+            first = _calce_rows(cycles=3, start_capacity=1.1)
+            second = _calce_rows(cycles=3, start_capacity=1.04)
+            second["Date_Time"] += pd.Timedelta(days=1)
+            first.to_csv(root / "part-1.csv", index=False)
+            second.to_csv(root / "part-2.csv", index=False)
+
+            batteries, names = CALCEAdapter().load_battery_data(
+                [str(root)], 3.8, 3.4, 2, 4, 7,
+                log_callback=None, stop_flag=lambda: False)
+
+        self.assertEqual(names, ["cell"])
+        np.testing.assert_array_equal(
+            batteries["cell"]["cycle"], np.arange(1, 7))
+
     def test_minimal_nasa_mat_extracts_named_discharge_cycles(self):
         expected = np.asarray([1.10, 1.08, 1.06, 1.04, 1.02])
         with tempfile.TemporaryDirectory() as temp_dir:

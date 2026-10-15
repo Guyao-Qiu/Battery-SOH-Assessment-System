@@ -85,7 +85,13 @@ class EvaluationIsolationTests(unittest.TestCase):
                 "recursive_prediction": [value - 0.2 for value in prediction],
                 "one_step_metrics": {**metrics, "re": 0.99},
                 "recursive_metrics": metrics,
-                "rul_protocol": "recursive_future",
+                "rul_protocol": "rolling_origin",
+                "rolling_rows": [
+                    {"start_frac": 0.5, "start": 2, "battery": name,
+                     "rmse": rmse, "mae": rmse + 0.1, "true_rul": 5,
+                     "pred_rul": 5, "rul_err": 0, "rul_rel_err": 0.0,
+                     "within_20pct": True, "status": "ok"},
+                ],
             }
 
         config = SimpleNamespace(
@@ -109,7 +115,7 @@ class EvaluationIsolationTests(unittest.TestCase):
         self.assertIn("one_step_metrics", result["detail"])
         self.assertIn("recursive_metrics", result["detail"])
         self.assertEqual(
-            result["detail"]["rul_protocol"], "recursive_future")
+            result["detail"]["rul_protocol"], "rolling_origin")
         self.assertAlmostEqual(
             result["detail"]["recursive_metrics"]["re"], 0.2)
 
@@ -232,7 +238,7 @@ class PredictionProtocolTests(unittest.TestCase):
                     patch.object(window, "_set_running_state"):
                 window.on_result(results, 0.1)
 
-            self.assertEqual(detail["failure_cycle"], 3)
+            self.assertEqual(detail["failure_cycle"], 4)
             self.assertEqual(
                 detail["failure_cycle_protocol"], "recursive_future")
         finally:

@@ -1,17 +1,20 @@
 {
-  "rated_capacity": 1.1,
-  "threshold_ratio": 0.8,
+  "rated_capacity": 2.0,
+  "threshold_ratio": 1.0,
   "voltage_upper": 3.8,
   "voltage_lower": 3.4,
-  "window_size": 64,
+  "window_size": 16,
   "epochs": 100,
   "hidden_dim": 64,
-  "seed": 3,
-  "n_seeds": 2,
+  "seed": 0,
+  "n_seeds": 1,
   "mode": "RNN",
-  "metric": "全部",
-  "device": "GPU (CUDA)",
-  "norm_method": "额定容量归一化",
+  "metric": "rmse",
+  "device": "cpu",
+  "norm_method": "rated",
+  "feature_columns": [
+    "capacity"
+  ],
   "n_estimators": 100,
   "learning_rate": 0.05,
   "max_depth": 6,
@@ -20,8 +23,8 @@
   "min_samples_leaf": 1,
   "max_features": 1.0,
   "patience": 20,
-  "adapter_type": "CALCE",
-  "cc_step": 2,
-  "cv_step": 4,
-  "discharge_step": 7
+  "adapter_type": "NASA",
+  "cc_step": null,
+  "cv_step": null,
+  "discharge_step": null
 }

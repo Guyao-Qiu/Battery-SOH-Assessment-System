@@ -7,18 +7,24 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn as nn
 from models.rnn_model import Net
-from core.preprocess import build_instances, CapacityScaler
-from core.batching import (
-    evaluate_recurrent_loss,
-    make_tensor_loader,
-    train_recurrent_epoch,
+from core.preprocess import (
+    build_instances,
+    build_instances_mf,
+    CapacityScaler,
+    FeatureScaler,
 )
-from core.cancellation import (
-    check_cancelled,
-    xgboost_stop_callbacks,
+from core.model_factory import (
+    hparam_grid,
+    make_fit_fn,
 )
+from core.protocol import (
+    choose_blend_by_rollout,
+    fit_final,
+    model_step_for,
+    select_hparams,
+)
+from core.cancellation import check_cancelled
 from utils.config import normalize_model_name
 
 
@@ -35,6 +41,18 @@ def _sha256_file(filepath):
         for chunk in iter(lambda: stream.read(1024 * 1024), b''):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _infer_input_size(state_dict):
+    """从权重形状推断输入特征数（兼容没有 ``input_size`` 字段的旧模型）。
+
+    循环单元的 ``weight_ih_l0`` 形状是 ``(gate_count * hidden, input_size)``。
+    """
+    for key in ('cell.weight_ih_l0', 'cell.weight_ih_l0_reverse'):
+        tensor = state_dict.get(key)
+        if tensor is not None and getattr(tensor, 'dim', lambda: 0)() == 2:
+            return int(tensor.shape[1])
+    return 1
 
 
 def _library_versions():
@@ -227,7 +245,16 @@ def load_model(filepath, allow_unsafe_joblib=False):
                 for key, value in state_dict.items()):
             raise ValueError('模型权重必须是仅包含张量的 state_dict')
         mode = metadata['mode']
-        model = Net(hidden_dim=metadata['hidden_dim'], num_layers=1, mode=mode)
+        # 多特征模型需要重建正确的 input_size；旧模型（无该字段）回退为 1
+        input_size = metadata.get('input_size')
+        if isinstance(input_size, bool) or not isinstance(input_size, int) \
+                or input_size < 1:
+            input_size = _infer_input_size(state_dict)
+        if input_size == 1:
+            model = Net(hidden_dim=metadata['hidden_dim'], num_layers=1, mode=mode)
+        else:
+            model = Net(hidden_dim=metadata['hidden_dim'], num_layers=1,
+                        mode=mode, input_size=input_size)
         try:
             model.load_state_dict(state_dict, strict=True)
         except (KeyError, RuntimeError, TypeError) as exc:
@@ -276,7 +303,8 @@ def _battery_capacity_hash(values):
 
 
 def _final_training_metadata(config, scaler, valid_names, battery_dict,
-                             sample_count, selected_parameters):
+                             sample_count, selected_parameters,
+                             feature_scaler=None, columns=None):
     battery_hashes = {
         name: _battery_capacity_hash(battery_dict[name]['capacity'])
         for name in valid_names
@@ -287,6 +315,8 @@ def _final_training_metadata(config, scaler, valid_names, battery_dict,
         data_digest.update(battery_hashes[name].encode('ascii'))
     training_params = _config_snapshot(config)
     training_params.update(selected_parameters)
+    columns = tuple(columns or ('capacity',))
+    multifeature = len(columns) > 1
     metadata = {
         'mode': config.mode,
         'model_type': config.mode,
@@ -296,9 +326,18 @@ def _final_training_metadata(config, scaler, valid_names, battery_dict,
         'norm_method': scaler.method,
         'scaler': scaler.to_dict(),
         'feature_schema': {
-            'feature': 'capacity',
+            'features': list(columns),
+            'feature': 'capacity' if not multifeature else 'multifeature',
             'dtype': 'float32',
-            'shape': ['batch', config.window_size],
+            'shape': (['batch', config.window_size, len(columns)]
+                      if multifeature
+                      else ['batch', config.window_size]),
+            'feature_scaler': (
+                feature_scaler.to_dict() if feature_scaler is not None
+                else None),
+            'multifeature_recursive_policy': (
+                '非容量通道在递归预测时保持窗口末值（未来工况未知）'
+                if multifeature else None),
         },
         'training_params': training_params,
         'data_hash': data_digest.hexdigest(),
@@ -309,20 +348,40 @@ def _final_training_metadata(config, scaler, valid_names, battery_dict,
     }
     if config.mode in RECURRENT_MODES:
         metadata['hidden_dim'] = config.hidden_dim
+        metadata['input_size'] = int(len(columns))
     return _complete_metadata(metadata)
 
 
 def _prepare_final_training_data(config, battery_dict, battery_list):
+    """收集全部有效电池的全部窗口（不再切出「训练电池的后 20%」作验证）。
+
+    改进方案 A2：验证集必须是**一块没见过的电池**（由 ``core.protocol`` 的内层
+    留一电池交叉验证提供），而不是「训练电池的最后一段」——后者恰好是寿命末段，
+    会让模型永远见不到膝点。
+    """
     battery_x, battery_y = {}, {}
     valid_names = []
+    columns = _feature_columns(config)
+    multifeature = len(columns) > 1
     for name in battery_list:
         if name in battery_x or name not in battery_dict:
             continue
+        entry = battery_dict[name]
         capacity = np.asarray(
-            battery_dict[name]['capacity'], dtype=np.float32).reshape(-1)
+            entry['capacity'], dtype=np.float32).reshape(-1)
         if len(capacity) <= config.window_size:
             continue
-        x, y = build_instances(capacity.tolist(), config.window_size)
+        if multifeature and hasattr(entry, 'columns'):
+            available = [c for c in columns if c in entry.columns]
+            if 'capacity' not in available:
+                available = ['capacity'] + available
+            x, y = build_instances_mf(
+                entry.loc[:, available], config.window_size,
+                cols=available)
+        else:
+            x, y = build_instances(capacity, config.window_size)
+        if len(x) == 0:
+            continue
         battery_x[name] = x
         battery_y[name] = y
         valid_names.append(name)
@@ -330,247 +389,147 @@ def _prepare_final_training_data(config, battery_dict, battery_list):
         raise ValueError('没有足够的数据训练最终模型')
 
     all_x = np.vstack([battery_x[name] for name in valid_names])
-    all_y = np.hstack([battery_y[name] for name in valid_names])
+    all_y = np.concatenate([battery_y[name] for name in valid_names])
     if len(all_x) < 2:
         raise ValueError('最终模型至少需要两个训练样本')
 
-    if len(valid_names) >= 2:
-        validation_name = valid_names[-1]
-        tuning_names = valid_names[:-1]
-        tuning_x = np.vstack([battery_x[name] for name in tuning_names])
-        tuning_y = np.hstack([battery_y[name] for name in tuning_names])
-        validation_x = battery_x[validation_name]
-        validation_y = battery_y[validation_name]
-    else:
-        validation_name = None
-        split = min(max(int(len(all_x) * 0.9), 1), len(all_x) - 1)
-        tuning_x, validation_x = all_x[:split], all_x[split:]
-        tuning_y, validation_y = all_y[:split], all_y[split:]
-
-    tuning_scaler = CapacityScaler(
-        method=config.norm_method,
-        rated_capacity=config.rated_capacity,
-    ).fit(np.concatenate((tuning_x.reshape(-1), tuning_y)))
-    final_scaler = CapacityScaler(
-        method=config.norm_method,
-        rated_capacity=config.rated_capacity,
-    ).fit(np.concatenate((all_x.reshape(-1), all_y)))
     return {
         'valid_names': valid_names,
-        'validation_name': validation_name,
-        'tuning_x': tuning_scaler.transform(tuning_x),
-        'tuning_y': tuning_scaler.transform(tuning_y),
-        'validation_x': tuning_scaler.transform(validation_x),
-        'validation_y': tuning_scaler.transform(validation_y),
-        'all_x': final_scaler.transform(all_x),
-        'all_y': final_scaler.transform(all_y),
-        'final_scaler': final_scaler,
+        'battery_x': battery_x,
+        'battery_y': battery_y,
+        'all_x': all_x,
+        'all_y': all_y,
     }
 
 
 def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
                             log_callback=None):
-    """Tune on a held-out validation set, then refit on every valid battery."""
+    """选超参 → 用**全部**有效电池的全部窗口定型（与评估路径共用 ``fit_final``）。
+
+    改进方案 A2：旧实现自己在 ``model_persistence`` 里重复了一遍 RNN 训练循环、
+    RF 分批加树和 XGBoost early stopping，而且「调参用的验证集」是训练电池的
+    最后一块 / 后 10%——与评估路径不同，导致「报告的评估指标评估的并不是最终
+    部署的那个模型」。
+
+    现在两条路径共用 :func:`core.protocol.fit_final`，超参由内层留一电池交叉验证
+    选出（验证对象是一块没见过的电池，和最终使用场景一致）。
+    """
     check_cancelled(stop_flag)
     mode = normalize_model_name(config.mode)
-    data = _prepare_final_training_data(
-        config, battery_dict, battery_list)
-    tuning_x = data['tuning_x']
-    tuning_y = data['tuning_y']
-    validation_x = data['validation_x']
-    validation_y = data['validation_y']
+    data = _prepare_final_training_data(config, battery_dict, battery_list)
+    valid_names = data['valid_names']
     all_x = data['all_x']
-    all_y = data['all_y']
-    seed = config.seed
+    columns = _feature_columns(config)
+    multifeature = len(columns) > 1
+    rated = float(config.rated_capacity)
+
+    # ── 选超参：内层留一电池交叉验证 ──
+    # scaler 只用全部有效电池拟合；fit_fn 内部会用它归一化，因此这里传原始量纲。
+    final_scaler, feature_scaler = _fit_final_scalers(
+        config, data, columns, multifeature, rated)
+    fit_fn = make_fit_fn(
+        config, stop_flag=stop_flag, log_callback=log_callback,
+        name='最终模型', net_class=Net, feature_scaler=feature_scaler)
+    grid = hparam_grid(config, mode)
+    device = getattr(config, 'device', 'cpu')
+    if len(valid_names) >= 2:
+        hp, cv_score, fold_models = select_hparams(
+            battery_dict, valid_names, config.window_size, fit_fn, grid, rated,
+            start_frac=0.5, stop_flag=stop_flag,
+            columns=columns if multifeature else None, return_folds=True,
+            device=device, feature_scaler=feature_scaler)
+        if log_callback:
+            score_text = (
+                'N/A' if cv_score is None or not np.isfinite(cv_score)
+                else f'{cv_score:.4f} Ah')
+            log_callback(
+                f'[最终模型] 内层留一电池交叉验证（{len(valid_names)} 折）：'
+                f'选定超参 {hp}，滚动 RMSE@50%={score_text}')
+    else:
+        hp = grid[0]
+        fold_models = {}
+        if log_callback:
+            log_callback(f'[最终模型] 只有一块电池，跳过内层交叉验证，使用 {hp}')
+
+    check_cancelled(stop_flag)
+
+    # ── 定型：用全部有效电池的全部窗口重训 ──
+    # 走的是与评估路径**同一个** core.protocol.fit_final（而不是各写一遍），
+    # 因此「报告的评估指标」与「最终部署的模型」是同一套流程的产物。
+    final_model = fit_final(
+        battery_dict, valid_names, config.window_size, fit_fn, hp, rated,
+        columns=columns if multifeature else None)
+    check_cancelled(stop_flag)
+
+    # ── 持久性混合系数：用「没见过验证电池」的内层折模型 + 多步滚动标定 ──
+    blend = _final_blend(
+        config, battery_dict, valid_names, rated, columns,
+        multifeature, feature_scaler, fold_models, log_callback)
 
     if mode in RECURRENT_MODES:
-        torch.manual_seed(seed)
-        tuning_model = Net(
-            hidden_dim=config.hidden_dim, num_layers=1, mode=mode).to(config.device)
-        optimizer = torch.optim.Adam(tuning_model.parameters(), lr=0.001)
-        criterion = nn.MSELoss()
-        tuning_loader = make_tensor_loader(
-            np.reshape(tuning_x, (-1, config.window_size, 1)),
-            np.reshape(tuning_y, (-1, 1)),
-            shuffle=False,
-            seed=seed,
-        )
-        validation_loader = make_tensor_loader(
-            np.reshape(validation_x, (-1, config.window_size, 1)),
-            np.reshape(validation_y, (-1, 1)),
-            shuffle=False,
-            seed=seed,
-        )
-
-        best_loss = float('inf')
-        best_epoch = 1
-        counter = 0
-        for epoch in range(max(1, config.epochs)):
-            check_cancelled(stop_flag)
-            loss = train_recurrent_epoch(
-                tuning_model, tuning_loader, optimizer, criterion,
-                config.device, stop_flag=stop_flag)
-            val_loss = evaluate_recurrent_loss(
-                tuning_model, validation_loader, criterion,
-                config.device, stop_flag=stop_flag)
-            if val_loss < best_loss:
-                best_loss = val_loss
-                best_epoch = epoch + 1
-                counter = 0
-            else:
-                counter += 1
-            if (epoch + 1) % 10 == 0 and log_callback:
-                log_callback(
-                    f'[参数选择] 第{epoch + 1}轮 损失={loss:.4f} '
-                    f'验证损失={val_loss:.4f}')
-            if counter >= config.patience:
-                break
-
-        torch.manual_seed(seed)
-        final_model = Net(
-            hidden_dim=config.hidden_dim, num_layers=1, mode=mode).to(config.device)
-        final_optimizer = torch.optim.Adam(final_model.parameters(), lr=0.001)
-        all_loader = make_tensor_loader(
-            np.reshape(all_x, (-1, config.window_size, 1)),
-            np.reshape(all_y, (-1, 1)),
-            shuffle=False,
-            seed=seed,
-        )
-        for _ in range(best_epoch):
-            check_cancelled(stop_flag)
-            train_recurrent_epoch(
-                final_model, all_loader, final_optimizer, criterion,
-                config.device, stop_flag=stop_flag)
-        final_model.eval()
-        check_cancelled(stop_flag)
         final_model = final_model.to('cpu')
-        metadata = _final_training_metadata(
-            config, data['final_scaler'], data['valid_names'], battery_dict,
-            len(all_x), {'selected_epochs': best_epoch})
-        if log_callback:
+
+    metadata = _final_training_metadata(
+        config, final_scaler, valid_names, battery_dict, len(all_x), hp,
+        feature_scaler=feature_scaler, columns=columns)
+    metadata['persistence_blend'] = blend
+    if log_callback:
+        log_callback(
+            f'[最终模型] 已用全部 {len(valid_names)} 块电池、'
+            f'{len(all_x)} 个样本重训，超参={hp}，α={blend:.3f}')
+    return final_model, metadata
+
+
+def _fit_final_scalers(config, data, columns, multifeature, rated):
+    """最终 scaler：只用全部有效电池的窗口拟合。"""
+
+    scaler = CapacityScaler(
+        method=config.norm_method,
+        rated_capacity=rated,
+    ).fit(np.concatenate(
+        [data['all_x'][:, :, 0].reshape(-1) if multifeature
+         else data['all_x'].reshape(-1),
+         data['all_y'].reshape(-1)]))
+
+    feature_scaler = None
+    if multifeature:
+        frames = []
+        for name in data['valid_names']:
+            x = data['battery_x'][name]
+            frames.append(x.reshape(-1, x.shape[-1]))
+        combined = np.vstack(frames)
+        feature_scaler = FeatureScaler().fit(combined)
+    return scaler, feature_scaler
+
+
+def _final_blend(config, battery_dict, valid_names, rated, columns,
+                 multifeature, feature_scaler, fold_models, log_callback):
+    """最终模型的 α：与评估路径同一口径（多步滚动 + 内层折模型）。"""
+    if not fold_models:
+        return 1.0
+    device = getattr(config, 'device', 'cpu')
+    alphas = {}
+    for val_name, fold_model in fold_models.items():
+        step_raw = model_step_for(
+            fold_model, rated, device=device, feature_scaler=feature_scaler)
+        alpha, _ = choose_blend_by_rollout(
+            step_raw, battery_dict, [val_name], config.window_size,
+            starts=(0.5, 0.6),
+            columns=columns if multifeature else None)
+        alphas[val_name] = alpha
+    blend = float(np.mean(list(alphas.values()))) if alphas else 1.0
+    if log_callback:
+        detail = '，'.join(f'{k}={v:.2f}' for k, v in alphas.items())
+        log_callback(f'[最终模型] 防过拟合校准系数 α={blend:.3f}（{detail}）')
+        if blend < 0.05:
             log_callback(
-                f'[最终模型] 已用全部 {len(data["valid_names"])} 块电池、'
-                f'{len(all_x)} 个样本重训 {best_epoch} 轮')
-        return final_model, metadata
+                '[最终模型] ⚠ 模型未超越持久性基线（α≈0）：'
+                '预测将退化为平推。')
+    return blend
 
-    if mode == 'XGBoost':
-        from xgboost import XGBRegressor
-        tuning_options = dict(
-            n_estimators=config.n_estimators,
-            learning_rate=config.learning_rate,
-            max_depth=config.max_depth,
-            subsample=config.subsample,
-            colsample_bytree=config.colsample_bytree,
-            early_stopping_rounds=config.patience,
-            random_state=seed,
-            verbosity=0,
-        )
-        callbacks = xgboost_stop_callbacks(stop_flag)
-        if callbacks is not None:
-            tuning_options['callbacks'] = callbacks
-        tuning_model = XGBRegressor(**tuning_options)
-        if log_callback:
-            log_callback('[参数选择] XGBoost 验证中...')
-        tuning_model.fit(
-            tuning_x, tuning_y,
-            eval_set=[(validation_x, validation_y)], verbose=False)
-        check_cancelled(stop_flag)
-        best_iteration = getattr(
-            tuning_model.get_booster(), 'best_iteration', None)
-        selected_trees = (
-            int(best_iteration) + 1
-            if best_iteration is not None else config.n_estimators)
-        final_options = dict(
-            n_estimators=selected_trees,
-            learning_rate=config.learning_rate,
-            max_depth=config.max_depth,
-            subsample=config.subsample,
-            colsample_bytree=config.colsample_bytree,
-            random_state=seed,
-            verbosity=0,
-        )
-        if callbacks is not None:
-            final_options['callbacks'] = xgboost_stop_callbacks(stop_flag)
-        final_model = XGBRegressor(**final_options)
-        final_model.fit(all_x, all_y)
-        check_cancelled(stop_flag)
-        metadata = _final_training_metadata(
-            config, data['final_scaler'], data['valid_names'], battery_dict,
-            len(all_x), {'selected_n_estimators': selected_trees})
-        if log_callback:
-            log_callback(
-                f'[最终模型] XGBoost 已用全部 {len(data["valid_names"])} 块电池、'
-                f'{len(all_x)} 个样本重训，树数={selected_trees}')
-        return final_model, metadata
 
-    if mode == 'RF':
-        from math import sqrt
-        from sklearn.ensemble import RandomForestRegressor
-        from sklearn.metrics import mean_squared_error
-
-        batch_size = max(1, min(10, config.n_estimators // 10))
-        best_score = float('inf')
-        selected_trees = min(batch_size, config.n_estimators)
-        counter = 0
-        total_trees = 0
-        tuning_model = RandomForestRegressor(
-            n_estimators=selected_trees,
-            max_depth=config.max_depth,
-            min_samples_leaf=config.min_samples_leaf,
-            max_features=config.max_features,
-            random_state=seed,
-            n_jobs=-1,
-            warm_start=True,
-        )
-        if log_callback:
-            log_callback('[参数选择] RF 验证中...')
-        while total_trees < config.n_estimators:
-            check_cancelled(stop_flag)
-            next_trees = min(total_trees + batch_size, config.n_estimators)
-            tuning_model.n_estimators = next_trees
-            tuning_model.fit(tuning_x, tuning_y)
-            check_cancelled(stop_flag)
-            rmse = sqrt(mean_squared_error(
-                validation_y, tuning_model.predict(validation_x)))
-            if rmse < best_score:
-                best_score = rmse
-                selected_trees = next_trees
-                counter = 0
-            else:
-                counter += 1
-            total_trees = next_trees
-            if log_callback:
-                log_callback(
-                    f'[参数选择] RF 树数={total_trees}/{config.n_estimators}，'
-                    f'RMSE={rmse:.4f}')
-            if counter >= config.patience:
-                break
-
-        final_batch_size = min(batch_size, selected_trees)
-        final_model = RandomForestRegressor(
-            n_estimators=final_batch_size,
-            max_depth=config.max_depth,
-            min_samples_leaf=config.min_samples_leaf,
-            max_features=config.max_features,
-            random_state=seed,
-            n_jobs=-1,
-            warm_start=True,
-        )
-        fitted_trees = 0
-        while fitted_trees < selected_trees:
-            check_cancelled(stop_flag)
-            fitted_trees = min(
-                fitted_trees + batch_size, selected_trees)
-            final_model.n_estimators = fitted_trees
-            final_model.fit(all_x, all_y)
-            check_cancelled(stop_flag)
-        metadata = _final_training_metadata(
-            config, data['final_scaler'], data['valid_names'], battery_dict,
-            len(all_x), {'selected_n_estimators': selected_trees})
-        if log_callback:
-            log_callback(
-                f'[最终模型] RF 已用全部 {len(data["valid_names"])} 块电池、'
-                f'{len(all_x)} 个样本重训，树数={selected_trees}')
-        return final_model, metadata
-
-    raise ValueError(f'不支持的模型类型: {mode}')
+def _feature_columns(config):
+    columns = getattr(config, 'feature_columns', None)
+    if columns is None:
+        return ('capacity',)
+    return tuple(columns)

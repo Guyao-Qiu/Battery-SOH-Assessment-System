@@ -5,6 +5,7 @@ AnimatedButton - 带水墨按压反馈的自定义 QPushButton
 2. 压印（wash）：按下瞬间产生低透明度墨色覆盖
 3. 激活态：模型按钮的激活高亮
 """
+import sys
 import time
 from PyQt6.QtCore import (
     Qt, QPropertyAnimation, QEasingCurve, QPoint, QPointF, QSize,
@@ -15,18 +16,54 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QPushButton
 
+from theme_tokens import get_theme
 
-# 角色对应颜色（墨色、浅色、深色）
+
+# 角色对应颜色（墨色、浅色、深色）——取值全部来自 theme_tokens。
+# 键仍是角色名，这样构造函数里的 `role in _ROLE_COLORS` 判断保持原样；
+# 值为 ``(token, token, token)`` 三元组：主墨色 / 压印色 / 深色。
 _ROLE_COLORS = {
-    'default':  ('#315B5A', '#6F8C83', '#244743'),
-    'primary':  ('#315B5A', '#6F8C83', '#244743'),
-    'success':  ('#4F6B4F', '#80947A', '#3C533C'),
-    'danger':   ('#9E3D2F', '#BE7468', '#7F2F26'),
-    'warning':  ('#98652E', '#B98B58', '#744A20'),
-    'ghost':    ('#414A45', '#777F79', '#2B332F'),
-    'model':    ('#315B5A', '#6F8C83', '#244743'),
-    'hero':     ('#315B5A', '#6F8C83', '#244743'),
+    'default':  ('primary', 'primary_l', 'primary_d'),
+    'primary':  ('primary', 'primary_l', 'primary_d'),
+    'success':  ('success', 'success_l', 'success_d'),
+    'danger':   ('danger', 'danger_d', 'danger_d'),
+    'warning':  ('warning', 'warning', 'warning'),
+    'ghost':    ('text_dim', 'text_muted', 'text'),
+    'model':    ('primary', 'primary_l', 'primary_d'),
+    'hero':     ('primary', 'primary_l', 'primary_d'),
 }
+
+#: 当前主题模式，仅在拿不到 ``ui.style`` 时兜底。
+_current_theme_mode = 'light'
+
+
+def set_button_theme(mode):
+    """设置按钮动画跟随的主题（``'light'`` / ``'dark'``）。"""
+    global _current_theme_mode
+    _current_theme_mode = str(mode).strip().lower()
+
+
+def _tokens():
+    """当前主题 token：优先问**已加载**的 ``ui.style``。
+
+    用 ``sys.modules`` 而不是 ``import ui.style``：``ui/__init__.py`` 会连带
+    导入 main_window / torch，而按钮可能在重库加载完成前就被创建；本模块
+    也因此绝不反向被 ``ui.style`` 导入，不存在循环导入。
+    """
+    style = sys.modules.get('ui.style')
+    if style is not None:
+        try:
+            return style.theme_tokens()
+        except (AttributeError, KeyError, ImportError):
+            # ui.style 已加载但没有 theme_tokens（例如版本不匹配）时回退
+            return get_theme(_current_theme_mode)
+    return get_theme(_current_theme_mode)
+
+
+def _role_color(role, index):
+    """取某角色的第 ``index`` 个 token 对应的 ``'#RRGGBB'``。"""
+    return _tokens()[_ROLE_COLORS[role][index]]
+
 
 # 墨晕与压印保持短促，避免持续动效干扰专业操作。
 _INK_BLOOM_DURATION = 360
@@ -134,8 +171,7 @@ class AnimatedButton(QPushButton):
 
         # 低透明度压印，模拟墨色落在宣纸上的轻微洇染。
         if self._flash_value > 0.001:
-            base_hex = _ROLE_COLORS[self._role][1]
-            c = QColor(base_hex)
+            c = QColor(_role_color(self._role, 1))
             c.setAlpha(int(48 * self._flash_value))
             grad = QRadialGradient(
                 QPointF(self.rect().center()),
@@ -156,7 +192,7 @@ class AnimatedButton(QPushButton):
             radius = eased * max_r
             opacity = 1.0 - progress
 
-            main_hex = _ROLE_COLORS[self._role][0]
+            main_hex = _role_color(self._role, 0)
 
             # 填充
             c_fill = QColor(main_hex)

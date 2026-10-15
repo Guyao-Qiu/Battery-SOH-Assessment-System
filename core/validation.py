@@ -94,10 +94,14 @@ def validate_training_config(config):
             getattr(config, 'cv_step', None),
             getattr(config, 'discharge_step', None),
         ]
-        if (any(isinstance(value, bool) or not isinstance(
-                value, (int, np.integer)) for value in steps) or
+        if any(value is None for value in steps):
+            errors.append(
+                '请在“设置工步”中输入恒流充电、恒压充电和放电工步')
+        elif (any(isinstance(value, bool) or not isinstance(
+                value, (int, np.integer)) or int(value) < 0
+                  for value in steps) or
                 len(set(steps)) != 3):
-            errors.append('恒流、恒压和放电工步必须是三个不同的整数')
+            errors.append('恒流、恒压和放电工步必须是三个不同的非负整数')
     return errors
 
 

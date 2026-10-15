@@ -208,9 +208,17 @@ class SharedPredictionScalingTests(unittest.TestCase):
         self.assertEqual(metadata["scaler"]["method"], "zscore")
 
     def test_tcp_prediction_calls_shared_scaler_path(self):
+        """A10：TCP 的递归预测仍走共用的 predict_capacity_batch（同一 scaler 契约）。
+
+        旧实现把这段逻辑写在 ``TCPServerWorker._run_prediction`` 里；现在它移到
+        纯 Python 的 ``core.stream_protocol.PredictionJob``，可以直接单测。
+        """
+        import core.stream_protocol as stream_module
+        from unittest.mock import patch
+
         tcp_module = importlib.import_module("ui.tcp_server")
-        shared_predict = getattr(tcp_module, "predict_capacity_batch", None)
-        self.assertIsNotNone(shared_predict)
+        self.assertIsNotNone(
+            getattr(tcp_module, "predict_capacity_batch", None))
 
         scaler = preprocess_module.CapacityScaler(
             method="minmax", rated_capacity=2.0).fit([1.0, 2.0, 3.0])
@@ -219,30 +227,36 @@ class SharedPredictionScalingTests(unittest.TestCase):
             "window_size": 2,
             "scaler": scaler.to_dict(),
         }
-        config = type("Config", (), {
-            "rated_capacity": 2.0,
-            "threshold_ratio": 0.4,
-            "device": "cpu",
-        })()
-        worker = tcp_module.TCPServerWorker(
-            object(), metadata, config, port=0)
         calls = []
 
-        def stop_after_one(model, used_metadata, windows, device):
+        def step_down(model, used_metadata, windows, device):
             calls.append((model, used_metadata, np.asarray(windows), device))
-            worker._stop_requested = True
-            return np.asarray([1.7])
+            # 每步下降，保证递归预测很快越过阈值并终止
+            return np.asarray([float(np.asarray(windows)[0, -1]) - 0.2])
 
-        from unittest.mock import patch
+        # ui.tcp_server 从 core.prediction 导入 predict_capacity_batch，
+        # 因此 patch 那里才能同时覆盖 TCP 路径与共用入口。
         with patch.object(
                 tcp_module, "predict_capacity_batch",
-                side_effect=stop_after_one):
-            worker._run_prediction(
-                [2.0, 1.9], "RF", 2, 2.0, "cpu")
+                side_effect=step_down):
+            job = stream_module.PredictionJob(
+                window=2,
+                step_fn=lambda w: tcp_module.predict_capacity_batch(
+                    object(), metadata, w, device="cpu"),
+                threshold=2.0 * 0.4,
+                rated_capacity=2.0,
+                min_interval=0.0,
+            )
+            job.feed(2.0)
+            job.feed(1.9)
+            result = job.predict()
 
-        self.assertEqual(len(calls), 1)
+        # 首次调用必须携带 TCP 传入的原始窗口与元数据（共用 scaler 契约）
         self.assertIs(calls[0][1], metadata)
         np.testing.assert_allclose(calls[0][2], [[2.0, 1.9]])
+        # 1.9 → 1.7 → 1.5 → 1.3 → 1.1 → 0.9 → 0.7（< 0.8 越阈）
+        self.assertEqual(result['rul'], 6)
+        self.assertIn("forecast", result)
 
     def test_legacy_tree_model_without_scaler_keeps_raw_input_contract(self):
         prediction_module = importlib.import_module("core.prediction")

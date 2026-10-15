@@ -3,29 +3,50 @@ import sys
 import ctypes
 import json
 import glob
-import logging
 
 import torch
 import numpy as np
 
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import (
+    Qt, QTimer, QSignalBlocker, QSettings,
+    QSortFilterProxyModel,
+)
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QMainWindow, QFileDialog, QLabel, QListWidget,
     QTextEdit, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox, QDoubleSpinBox,
-    QSpinBox, QComboBox, QMessageBox, QSizePolicy,
+    QSpinBox, QComboBox, QLineEdit, QMessageBox, QSizePolicy,
     QSplitter, QScrollArea, QAbstractSpinBox, QAbstractItemView, QProgressBar, QStatusBar,
-    QDialog, QFrame, QToolButton,
+    QDialog, QFrame, QToolButton, QTabWidget, QTableView, QHeaderView,
+    QPushButton, QCheckBox,
 )
-from PyQt6.QtGui import QTextCursor, QShortcut, QKeySequence, QFontMetrics
+from PyQt6.QtGui import (
+    QTextCursor, QShortcut, QKeySequence, QFontMetrics, QIntValidator,
+)
 from ui.chart_show import MplCanvas, CustomToolbar, apply_sup_sub
 from ui.worker import EvalWorker
 from ui.animated_button import AnimatedButton
-from ui.style import apply_theme
+from ui.style import apply_theme, theme_tokens
+from ui.result_model import (
+    COLUMNS,
+    COLUMN_WIDTHS,
+    ResultTableModel,
+    bootstrap_summary,
+    rows_from_details,
+    summary_row,
+    to_csv,
+)
 from utils.config import (
+    DEVICE_UI,
+    FEATURE_OPTIONS,
+    NORM_UI,
+    THEME_UI,
     TrainConfig,
+    from_ui,
     load_config,
+    normalize_device,
     normalize_model_name,
     save_config,
+    to_ui,
 )
 from utils.logger import setup_logger
 from utils.paths import FIGURE_DIR, MODEL_DIR, OUTPUTS_DIR
@@ -39,7 +60,51 @@ from core.report_export import (
     export_run_report,
 )
 from core.run_snapshot import RunSnapshot
+from theme_tokens import DEFAULT_THEME, THEMES, THEME_SETTINGS_KEY
 # ── JSON 配置导入映射 ──────────────────────────────────────
+
+#: 主题与窗口几何的持久化设置（U4 / C5）
+SETTINGS_ORG = 'BatterySOH'
+SETTINGS_APP = 'AssessmentSystem'
+
+
+def _settings():
+    return QSettings(SETTINGS_ORG, SETTINGS_APP)
+
+
+def restore_or_default_geometry(window):
+    """恢复上次的窗口几何；没有记录时按可用屏幕自适应（U4）。
+
+    旧实现固定 ``resize(1600, 900)``，在 1366×768 的笔记本上起始尺寸就超出屏幕。
+    """
+    settings = _settings()
+    geometry = settings.value('geometry')
+    if geometry is not None and window.restoreGeometry(geometry):
+        return False
+    screen = window.screen()
+    if screen is not None:
+        available = screen.availableGeometry()
+        window.resize(
+            min(1600, int(available.width() * 0.9)),
+            min(900, int(available.height() * 0.9)))
+    else:
+        window.resize(1280, 800)
+    return True
+
+
+def save_geometry(window):
+    _settings().setValue('geometry', window.saveGeometry())
+
+
+def saved_theme_mode():
+    """读取已保存的主题模式（供启动闪屏在重库加载前使用）。
+
+    默认 **深色（墨夜）**：这是产品默认外观，浅色（宣纸）为可选。
+    用户选择会被 QSettings 记住，下次启动沿用。
+    """
+    value = _settings().value(THEME_SETTINGS_KEY, DEFAULT_THEME)
+    return str(value).strip().lower() if value else DEFAULT_THEME
+
 
 def _map_metric(val):
     m = str(val).lower()
@@ -47,12 +112,11 @@ def _map_metric(val):
             're': 'RE', 'all': '全部'}.get(m, 'RMSE')
 
 def _map_norm(val):
-    m = str(val).lower()
-    return {'rated': '额定容量归一化', 'minmax': 'MinMax', 'zscore': 'ZScore'}.get(m, '额定容量归一化')
+    """规范键 -> 界面文本（同时兼容旧的界面文本输入）。"""
+    return to_ui(NORM_UI, from_ui(NORM_UI, val))
 
 def _map_device(val):
-    m = str(val).lower()
-    return {'cpu': 'CPU', 'cuda': 'GPU (CUDA)'}.get(m, 'CPU')
+    return to_ui(DEVICE_UI, normalize_device(val))
 
 
 def format_metric_value(value):
@@ -95,29 +159,40 @@ _FOLDER_DIALOG_TOOLTIPS = {
 }
 
 
+def _hex_to_colorref(hex_color):
+    """``'#RRGGBB'`` -> Windows COLORREF（``0x00BBGGRR``）。"""
+    value = str(hex_color).lstrip('#')
+    if len(value) == 3:
+        value = ''.join(char * 2 for char in value)
+    red, green, blue = (int(value[index:index + 2], 16)
+                        for index in (0, 2, 4))
+    return (blue << 16) | (green << 8) | red
+
+
 def _apply_windows_paper_caption(dlg):
-    """在 Windows 11 上让此对话框的原生标题栏匹配宣纸主题。"""
+    """在 Windows 11 上让此对话框的原生标题栏匹配当前主题。"""
     if sys.platform != 'win32':
         return
     try:
         hwnd = int(dlg.winId())
         dwm = ctypes.windll.dwmapi
-        dark_mode = ctypes.c_int(0)
+        tokens = theme_tokens()
+        dark_mode = ctypes.c_int(1 if tokens is THEMES['dark'] else 0)
         dwm.DwmSetWindowAttribute(
             hwnd, 20, ctypes.byref(dark_mode), ctypes.sizeof(dark_mode))
 
         DWMWA_BORDER_COLOR = 34
         DWMWA_CAPTION_COLOR = 35
         DWMWA_TEXT_COLOR = 36
-        # Windows COLORREF 使用 0x00BBGGRR。
-        for attribute, colorref in (
-                (DWMWA_BORDER_COLOR, 0x848D89),   # #898D84
-                (DWMWA_CAPTION_COLOR, 0xD1E0E8),  # #E8E0D1
-                (DWMWA_TEXT_COLOR, 0x242720)):     # #202724
-            value = ctypes.c_uint(colorref)
+        # 颜色全部来自主题 token，深色主题下标题栏也会跟着变
+        for attribute, token_name in (
+                (DWMWA_BORDER_COLOR, 'border'),
+                (DWMWA_CAPTION_COLOR, 'bg_deep'),
+                (DWMWA_TEXT_COLOR, 'text')):
+            value = ctypes.c_uint(_hex_to_colorref(tokens[token_name]))
             dwm.DwmSetWindowAttribute(
                 hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value))
-    except (AttributeError, OSError, TypeError):
+    except (AttributeError, OSError, TypeError, KeyError):
         # 旧版 Windows 不支持标题栏颜色属性时，内容区主题仍正常生效。
         pass
 
@@ -147,6 +222,28 @@ def _configure_button_row(layout, buttons, spacing=8):
         button.setMinimumHeight(36)
         button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout.addWidget(button, 1)
+
+
+def _create_step_input(accessible_name):
+    step_input = QLineEdit()
+    step_input.setAccessibleName(accessible_name)
+    step_input.setPlaceholderText('无')
+    step_input.setValidator(QIntValidator(0, 2_147_483_647, step_input))
+    step_input.setClearButtonEnabled(True)
+    step_input.setInputMethodHints(Qt.InputMethodHint.ImhDigitsOnly)
+    return step_input
+
+
+def _set_step_input(step_input, value):
+    step_input.setText('' if value is None else str(value))
+
+
+def _step_input_value(step_input):
+    text = step_input.text().strip()
+    if not text:
+        return None
+    state, _, _ = step_input.validator().validate(text, len(text))
+    return int(text) if state == QIntValidator.State.Acceptable else None
 
 
 class _HelpDialog(QDialog):
@@ -208,22 +305,37 @@ class CollapsibleSection(QFrame):
 
 
 class MainWindow(QMainWindow):
+    _independent_windows = []
+
     def __init__(self):
         super().__init__()
+        # 字体在**进程启动时**装好（battery_soh_app.py 在 QApplication 之后、
+        # 任何控件之前调用 ui.fonts.install_fonts）。这里刻意**不**碰
+        # QFontDatabase：在控件已存在之后再调用它的静态方法，会让本环境里
+        # 字体库缺失的 PyQt6（Qt6/lib/fonts 不存在）在后续绘制时段错误
+        # （0xC0000005，实测可稳定复现）。窗口只负责画界面，不负责装字体。
         self.setWindowTitle('Battery SOH Assessment System')
         self.setWindowIcon(get_app_icon())
-        self.resize(1600, 900)
         self.setMinimumSize(1180, 700)
+        # U4：恢复上次几何；没有记录时按可用屏幕自适应，而不是硬编码 1600×900
+        restore_or_default_geometry(self)
 
         self.imported_paths = []
         self.current_mode = 'RNN'
         self.worker = None
+        self._active_run_kind = None
+        self._finish_status_message = '准备就绪'
         self._eval_rated_capacity = 1.1
         self._eval_threshold_ratio = 0.8
         self.battery_dict = {}
         self.battery_list = []
         self._active_run_snapshot = None
         self._last_run_snapshot = None
+        self._result_batches = []
+        self._has_completed_training_run = False
+        self._child_training_windows = []
+        self._error_toast = None
+        self._theme_mode = saved_theme_mode()
 
         self.loaded_model = None
         self.loaded_metadata = None
@@ -238,9 +350,28 @@ class MainWindow(QMainWindow):
         self._install_sup_sub_shortcuts()
         self._load_persisted_config()
 
-    def apply_theme(self):
-        """应用全局宣纸水墨主题样式。"""
-        apply_theme(QApplication.instance())
+    def apply_theme(self, mode=None):
+        """应用全局宣纸水墨主题样式；``mode`` 为 ``'light'`` / ``'dark'``。"""
+        if mode is not None:
+            self._theme_mode = str(mode).strip().lower()
+        tokens = apply_theme(QApplication.instance(), self._theme_mode)
+        _settings().setValue(THEME_SETTINGS_KEY, self._theme_mode)
+        # 让结果表与图表跟着换色
+        if getattr(self, 'result_model', None) is not None:
+            self.result_model.set_tokens(tokens)
+        if getattr(self, 'canvas', None) is not None:
+            try:
+                self.canvas.apply_theme_tokens(tokens)
+            except AttributeError:
+                pass
+        self._sync_theme_button()
+        return tokens
+
+    def toggle_theme(self):
+        """浅色 / 深色主题切换（C5）。"""
+        self.apply_theme('light' if self._theme_mode == 'dark' else 'dark')
+        self.append_log(
+            f'主题已切换为：{THEME_UI.get(self._theme_mode, self._theme_mode)}')
 
     def _load_persisted_config(self):
         cfg = load_config()
@@ -280,30 +411,42 @@ class MainWindow(QMainWindow):
             idx = self.metric_combo.findText(cfg['metric'])
             if idx >= 0:
                 self.metric_combo.setCurrentIndex(idx)
+        # A11：配置里存的是规范键（'cuda'），界面显示的是 'GPU (CUDA)'。
+        # 旧配置文件可能存了界面文本，from_ui 两种都接受。
         if 'device' in cfg and hasattr(self, 'device_combo'):
-            idx = self.device_combo.findText(cfg['device'])
+            idx = self.device_combo.findText(to_ui(DEVICE_UI, cfg['device']))
             if idx >= 0:
                 self.device_combo.setCurrentIndex(idx)
         if 'norm_method' in cfg and hasattr(self, 'norm_combo'):
-            idx = self.norm_combo.findText(cfg['norm_method'])
+            idx = self.norm_combo.findText(
+                to_ui(NORM_UI, from_ui(NORM_UI, cfg['norm_method'])))
             if idx >= 0:
                 self.norm_combo.setCurrentIndex(idx)
+        if 'feature_columns' in cfg and hasattr(self, 'feature_checks'):
+            selected = set(cfg['feature_columns'] or ['capacity'])
+            for name, checkbox in self.feature_checks.items():
+                checkbox.setChecked(name in selected)
+            self.feature_checks['capacity'].setChecked(True)
         # 数据源配置
         if 'adapter_type' in cfg and hasattr(self, 'adapter_combo'):
             idx = self.adapter_combo.findData(cfg['adapter_type'])
             if idx >= 0:
                 self.adapter_combo.setCurrentIndex(idx)
-        if 'cc_step' in cfg and hasattr(self, 'cc_step_spin'):
-            self.cc_step_spin.setValue(cfg['cc_step'])
-        if 'cv_step' in cfg and hasattr(self, 'cv_step_spin'):
-            self.cv_step_spin.setValue(cfg['cv_step'])
-        if 'discharge_step' in cfg and hasattr(self, 'discharge_step_spin'):
-            self.discharge_step_spin.setValue(cfg['discharge_step'])
+        if 'cc_step' in cfg and hasattr(self, 'cc_step_input'):
+            _set_step_input(self.cc_step_input, cfg['cc_step'])
+        if 'cv_step' in cfg and hasattr(self, 'cv_step_input'):
+            _set_step_input(self.cv_step_input, cfg['cv_step'])
+        if 'discharge_step' in cfg and hasattr(self, 'discharge_step_input'):
+            _set_step_input(
+                self.discharge_step_input, cfg['discharge_step'])
         # 触发适配器切换以更新控件状态
         if hasattr(self, '_on_adapter_changed'):
             self._on_adapter_changed()
 
     def _save_persisted_config(self):
+        # A11：配置里只存"规范键"（'cuda' / 'rated' / 'NASA'），
+        # 界面文本只在界面层转换。旧版本把 'GPU (CUDA)' 直接写进 JSON，
+        # 导致导入自己保存的配置时 GPU 被静默切回 CPU。
         cfg = {
             'rated_capacity': self.rated_capacity_spin.value(),
             'threshold_ratio': self.threshold_ratio_spin.value(),
@@ -315,9 +458,14 @@ class MainWindow(QMainWindow):
             'seed': self.seed_spin.value(),
             'n_seeds': self.n_seeds_spin.value(),
             'mode': self.current_mode,
-            'metric': self.metric_combo.currentText(),
-            'device': self.device_combo.currentText(),
-            'norm_method': self.norm_combo.currentText(),
+            'metric': from_ui(
+                {'rmse': 'RMSE', 'mae': 'MAE', 'r2': 'R²',
+                 'pearson': 'Pearson', 're': 'RE', 'all': '全部'},
+                self.metric_combo.currentText(), 'rmse'),
+            'device': normalize_device(self.device_combo.currentText()),
+            'norm_method': from_ui(
+                NORM_UI, self.norm_combo.currentText(), 'rated'),
+            'feature_columns': self._selected_features(),
             'n_estimators': self.xgb_n_estimators_spin.value(),
             'learning_rate': self.xgb_learning_rate_spin.value(),
             'max_depth': self.xgb_max_depth_spin.value(),
@@ -327,9 +475,9 @@ class MainWindow(QMainWindow):
             'max_features': self.rf_max_features_spin.value(),
             'patience': self.xgb_patience_spin.value(),
             'adapter_type': self.adapter_combo.currentData(),
-            'cc_step': self.cc_step_spin.value(),
-            'cv_step': self.cv_step_spin.value(),
-            'discharge_step': self.discharge_step_spin.value(),
+            'cc_step': _step_input_value(self.cc_step_input),
+            'cv_step': _step_input_value(self.cv_step_input),
+            'discharge_step': _step_input_value(self.discharge_step_input),
         }
         try:
             save_config(cfg)
@@ -342,6 +490,18 @@ class MainWindow(QMainWindow):
             return False
         return True
 
+    def _selected_features(self):
+        """当前勾选的多特征列（容量必选且排第一）。"""
+        if not hasattr(self, 'feature_checks'):
+            return ['capacity']
+        names = [
+            name for name, checkbox in self.feature_checks.items()
+            if checkbox.isChecked()
+        ]
+        if 'capacity' not in names:
+            names.insert(0, 'capacity')
+        return names
+
     def closeEvent(self, event):
         if not self._request_worker_stop(timeout_ms=5000, closing=True):
             show_message(
@@ -350,7 +510,56 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self._save_persisted_config()
+        save_geometry(self)          # U4：记住窗口几何
         super().closeEvent(event)
+
+    def build_top_bar(self):
+        """右上顶角的主题切换按钮（C5 / U8）。
+
+        默认深色（墨夜）。按钮同时带**图标 + 文字**描述当前目标主题，
+        不只靠颜色区分状态（U6 的无障碍要求）。
+        """
+        bar = QFrame()
+        bar.setObjectName('topBar')
+        bar.setProperty('role', 'topBar')
+        bar.setFixedHeight(44)
+
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(12, 4, 8, 4)
+        layout.setSpacing(10)
+
+        title = QLabel('Battery SOH Assessment System')
+        title.setProperty('role', 'topBarTitle')
+        layout.addWidget(title)
+
+        subtitle = QLabel('电池健康状态评估 · Research Preview')
+        subtitle.setProperty('role', 'topBarSubtitle')
+        layout.addWidget(subtitle)
+        layout.addStretch(1)
+
+        self.theme_btn = AnimatedButton('', 'ghost')
+        self.theme_btn.setObjectName('themeToggle')
+        self.theme_btn.setAccessibleName('切换浅色或深色主题')
+        self.theme_btn.setMinimumWidth(132)
+        self.theme_btn.clicked.connect(self.toggle_theme)
+        layout.addWidget(self.theme_btn)
+        self._sync_theme_button()
+        return bar
+
+    def _sync_theme_button(self):
+        """让按钮文案反映**当前**主题与**点击后**会切到的主题。"""
+        button = getattr(self, 'theme_btn', None)
+        if button is None:
+            return
+        if self._theme_mode == 'dark':
+            button.setText('🌙 墨夜（深色）')
+            target = '宣纸（浅色）'
+        else:
+            button.setText('☀ 宣纸（浅色）')
+            target = '墨夜（深色）'
+        button.setToolTip(
+            f'当前：{THEME_UI.get(self._theme_mode, self._theme_mode)}；'
+            f'点击切换到{target}（Ctrl+T）')
 
     def init_ui(self):
         # 先应用主题（必须在控件创建前）
@@ -365,25 +574,33 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(8)
         central.setLayout(main_layout)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        # ── 顶部条：左侧应用名，右侧主题切换（右上顶角） ──
+        main_layout.addWidget(self.build_top_bar())
+
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         left_widget = QWidget()
         center_widget = QWidget()
         right_widget = QWidget()
 
-        splitter.addWidget(left_widget)
-        splitter.addWidget(center_widget)
-        splitter.addWidget(right_widget)
+        self.main_splitter.addWidget(left_widget)
+        self.main_splitter.addWidget(center_widget)
+        self.main_splitter.addWidget(right_widget)
 
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setStretchFactor(2, 0)
-        splitter.setSizes([320, 800, 400])
-        splitter.setMinimumWidth(100)
-        splitter.setHandleWidth(2)
-        left_widget.setMinimumWidth(300)
+        self.main_splitter.setStretchFactor(0, 0)
+        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setStretchFactor(2, 0)
+        # 注意：右栏宽度受「最小窗口下图表仍占主导」的约束（见
+        # tests/test_ui_polish_layout.py::test_minimum_workspace_keeps_chart_column_dominant），
+        # 因此结果表在窄面板里靠横向滚动 + 省略号 + 工具提示呈现完整信息。
+        self.main_splitter.setSizes([285, 820, 315])
+        self.main_splitter.setMinimumWidth(100)
+        self.main_splitter.setHandleWidth(2)
+        left_widget.setMinimumWidth(280)
+        center_widget.setMinimumWidth(500)
+        right_widget.setMinimumWidth(300)
 
-        main_layout.addWidget(splitter, 1)
+        main_layout.addWidget(self.main_splitter, 1)
 
         self.build_left_panel(left_widget)
         self.build_center_panel(center_widget)
@@ -459,24 +676,6 @@ class MainWindow(QMainWindow):
         self.adapter_combo.currentIndexChanged.connect(self._on_adapter_changed)
         source_layout.addRow('数据格式:', self.adapter_combo)
 
-        self.cc_step_spin = QSpinBox()
-        self.cc_step_spin.setRange(0, 99)
-        self.cc_step_spin.setValue(2)
-        self.cc_step_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        source_layout.addRow('恒流充电工步:', self.cc_step_spin)
-
-        self.cv_step_spin = QSpinBox()
-        self.cv_step_spin.setRange(0, 99)
-        self.cv_step_spin.setValue(4)
-        self.cv_step_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        source_layout.addRow('恒压充电工步:', self.cv_step_spin)
-
-        self.discharge_step_spin = QSpinBox()
-        self.discharge_step_spin.setRange(0, 99)
-        self.discharge_step_spin.setValue(7)
-        self.discharge_step_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        source_layout.addRow('放电工步:', self.discharge_step_spin)
-
         source_group.setLayout(source_layout)
 
         param_group = QGroupBox('参数设置')
@@ -484,9 +683,21 @@ class MainWindow(QMainWindow):
         param_layout.setContentsMargins(8, 10, 8, 8)
         param_layout.setSpacing(8)
 
+        self.step_section = CollapsibleSection('设置工步', expanded=False)
+        self.cc_step_input = _create_step_input('恒流充电工步')
+        self.cv_step_input = _create_step_input('恒压充电工步')
+        self.discharge_step_input = _create_step_input('放电工步')
+        self.step_section.form_layout.addRow(
+            '恒流充电工步:', self.cc_step_input)
+        self.step_section.form_layout.addRow(
+            '恒压充电工步:', self.cv_step_input)
+        self.step_section.form_layout.addRow(
+            '放电工步:', self.discharge_step_input)
+
         battery_section = CollapsibleSection('电池与失效判据')
         evaluation_section = CollapsibleSection('评估与验证')
         advanced_section = CollapsibleSection('模型高级参数', expanded=False)
+        param_layout.addWidget(self.step_section)
         param_layout.addWidget(battery_section)
         param_layout.addWidget(evaluation_section)
         param_layout.addWidget(advanced_section)
@@ -542,6 +753,34 @@ class MainWindow(QMainWindow):
         self.metric_combo.addItems(['RMSE', 'MAE', 'R²', 'Pearson', 'RE', '全部'])
         _add_row(evaluation_section, '评估指标', self.metric_combo,
                  ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF'])
+
+        # ---- 多特征输入（A5）：默认只用容量，勾选后启用 HI 特征 ----
+        feature_widget = QWidget()
+        feature_layout = QVBoxLayout(feature_widget)
+        feature_layout.setContentsMargins(0, 0, 0, 0)
+        feature_layout.setSpacing(2)
+        self.feature_checks = {}
+        for name, label in FEATURE_OPTIONS.items():
+            checkbox = QCheckBox(label)
+            if name == 'capacity':
+                checkbox.setChecked(True)
+                checkbox.setEnabled(False)      # 容量是预测目标，必选
+                checkbox.setToolTip('容量是预测目标，始终参与输入')
+            else:
+                checkbox.setToolTip(
+                    '勾选后模型除容量外还使用该健康指标（HI）。'
+                    '注意：递归预测时非容量通道保持窗口末值。')
+            self.feature_checks[name] = checkbox
+            feature_layout.addWidget(checkbox)
+        _add_row(evaluation_section, '输入特征', feature_widget,
+                 ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF'])
+        self._feature_hint = QLabel(
+            '默认只用容量（纯自回归）。勾选 dq_v / CCCT / CVCT / 内阻后'
+            '启用多特征输入；dq_v 是电压窗口内的放电容量（健康指标 HI），'
+            '不是 SOH。')
+        self._feature_hint.setProperty('role', 'muted')
+        self._feature_hint.setWordWrap(True)
+        evaluation_section.form_layout.addRow('', self._feature_hint)
 
         # ---- RNN/LSTM/GRU 专用 ----
         self.hidden_dim_spin = QSpinBox()
@@ -667,17 +906,19 @@ class MainWindow(QMainWindow):
         param_layout.addWidget(self.help_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
         # 左侧三个面板（文件导入 / 数据源 / 参数设置）统一用垂直 splitter 分隔
-        left_splitter = QSplitter(Qt.Orientation.Vertical)
-        left_splitter.addWidget(file_group)
-        left_splitter.addWidget(source_group)
-        left_splitter.addWidget(param_scroll)
-        left_splitter.setStretchFactor(0, 2)
-        left_splitter.setStretchFactor(1, 0)
-        left_splitter.setStretchFactor(2, 1)
-        left_splitter.setSizes([200, 140, 300])
-        left_splitter.setHandleWidth(2)
+        self.left_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.left_splitter.setObjectName('leftPanelSplitter')
+        self.left_splitter.addWidget(file_group)
+        self.left_splitter.addWidget(source_group)
+        self.left_splitter.addWidget(param_scroll)
+        self.left_splitter.setStretchFactor(0, 2)
+        self.left_splitter.setStretchFactor(1, 0)
+        self.left_splitter.setStretchFactor(2, 1)
+        self.left_splitter.setSizes([240, 80, 320])
+        # 10px 负责鼠标命中；样式仅在中间绘制 2px 分割线。
+        self.left_splitter.setHandleWidth(10)
 
-        layout.addWidget(left_splitter, 1)
+        layout.addWidget(self.left_splitter, 1)
 
         self._help_dialog = None
         self._update_param_panel('RNN')
@@ -740,6 +981,14 @@ class MainWindow(QMainWindow):
         self.load_model_btn.setToolTip('加载已有模型 (Ctrl+L)')
         self.unload_model_btn.setToolTip('卸载当前模型并切回训练模式')
         self.tcp_btn.clicked.connect(self.toggle_tcp_server)
+        self.tcp_btn.setToolTip('接入实时容量数据（实验功能，默认仅监听本机）')
+
+        # A10：默认只监听 127.0.0.1；开放局域网必须显式勾选
+        self.tcp_lan_check = QCheckBox('允许局域网访问')
+        self.tcp_lan_check.setToolTip(
+            '勾选后服务将监听 0.0.0.0 并自动生成访问 token；'
+            '仅在可信网络中临时启用。')
+        self.tcp_lan_check.setAccessibleName('允许局域网访问 TCP 服务')
 
         self.save_model_btn.setEnabled(False)
         self.unload_model_btn.setEnabled(False)
@@ -748,6 +997,7 @@ class MainWindow(QMainWindow):
         _configure_button_row(
             io_layout, (self.save_model_btn, self.load_model_btn,
                         self.unload_model_btn, self.tcp_btn))
+        io_layout.addWidget(self.tcp_lan_check)
 
         self.start_btn = AnimatedButton('开始评估', 'hero')
         self.start_btn.setShortcut(QKeySequence('Ctrl+Return'))
@@ -786,7 +1036,8 @@ class MainWindow(QMainWindow):
 
         self.canvas = MplCanvas()
         self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.canvas.setToolTip('双击图表可进入独立全屏查看，按 Esc 退出')
+        self.canvas.setToolTip(
+            '右键图表可选择全屏查看当前子图或全部子图；按 Esc 退出全屏')
 
         self.toolbar = CustomToolbar(self.canvas, self)
 
@@ -805,23 +1056,135 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(6, 0, 0, 0)
         layout.setSpacing(8)
 
-        result_group = QGroupBox('结果展示')
-        result_layout = QVBoxLayout()
+        self.right_tabs = QTabWidget()
+        self.right_tabs.setObjectName('workspaceTabs')
+        self.right_tabs.setDocumentMode(True)
+        self.right_tabs.setAccessibleName('评估结果与训练日志')
+
+        result_page = QWidget()
+        result_layout = QVBoxLayout(result_page)
+        result_layout.setContentsMargins(8, 8, 8, 8)
+        result_layout.setSpacing(8)
+
+        self.result_batch_bar = QFrame()
+        self.result_batch_bar.setProperty('role', 'resultBatchBar')
+        batch_layout = QHBoxLayout(self.result_batch_bar)
+        batch_layout.setContentsMargins(8, 5, 8, 5)
+        batch_layout.setSpacing(8)
+        batch_label = QLabel('结果批次')
+        batch_label.setProperty('role', 'resultBatchLabel')
+        self.result_batch_combo = QComboBox()
+        self.result_batch_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.result_batch_combo.setMinimumContentsLength(18)
+        self.result_batch_combo.setAccessibleName('选择要查看的训练或预测结果批次')
+        self.result_batch_combo.currentIndexChanged.connect(
+            self._display_result_batch)
+        batch_layout.addWidget(batch_label)
+        batch_layout.addWidget(self.result_batch_combo, 1)
+        self.result_batch_bar.setVisible(False)
+        result_layout.addWidget(self.result_batch_bar)
+
+        self.result_summary = QFrame()
+        self.result_summary.setProperty('role', 'resultSummary')
+        summary_layout = QVBoxLayout(self.result_summary)
+        summary_layout.setContentsMargins(12, 9, 12, 9)
+        summary_layout.setSpacing(3)
+        summary_top = QHBoxLayout()
+        summary_top.setContentsMargins(0, 0, 0, 0)
+        self.result_summary_title = QLabel()
+        self.result_summary_title.setProperty('role', 'resultSummaryTitle')
+        self.result_summary_metric = QLabel()
+        self.result_summary_metric.setProperty('role', 'resultSummaryMetric')
+        self.result_summary_metric.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        summary_top.addWidget(self.result_summary_title, 1)
+        summary_top.addWidget(self.result_summary_metric)
+        self.result_summary_meta = QLabel()
+        self.result_summary_meta.setProperty('role', 'resultSummaryMeta')
+        summary_layout.addLayout(summary_top)
+        summary_layout.addWidget(self.result_summary_meta)
+        self.result_summary.setVisible(False)
+        result_layout.addWidget(self.result_summary)
 
         self.result_scroll = QScrollArea()
         self.result_scroll.setWidgetResizable(True)
+        self.result_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.result_container = QWidget()
         self.result_container.setProperty('role', 'resultContainer')
         self.result_container_layout = QVBoxLayout(self.result_container)
         self.result_container_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.result_container_layout.setSpacing(8)
+
+        # ── U1：可排序结果表（取代 N 张卡片竖排） ──
+        self.result_model = ResultTableModel(
+            [], tokens=theme_tokens(self._theme_mode))
+        self.result_proxy = QSortFilterProxyModel()
+        self.result_proxy.setSourceModel(self.result_model)
+        # 用 UserRole 里的原始值排序，而不是格式化后的字符串
+        self.result_proxy.setSortRole(Qt.ItemDataRole.UserRole)
+        self.result_view = QTableView()
+        self.result_view.setModel(self.result_proxy)
+        self.result_view.setSortingEnabled(True)
+        self.result_view.setAlternatingRowColors(True)
+        self.result_view.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.result_view.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.result_view.verticalHeader().setVisible(False)
+        # U1：显式列宽（ResizeToContents 会被汇总行撑到 1200px 以上），
+        # 超出部分省略号显示，完整值在工具提示里。
+        header = self.result_view.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
+        header.setDefaultAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.result_view.setTextElideMode(Qt.TextElideMode.ElideRight)
+        for index, column in enumerate(COLUMNS):
+            self.result_view.setColumnWidth(
+                index, COLUMN_WIDTHS.get(column[1], 74))
+        self.result_view.setAccessibleName('评估结果表，点击列头可排序')
+        self.result_view.setMinimumHeight(180)
+        self.result_container_layout.addWidget(self.result_view)
+
+        # 起点选择 + 导出 CSV（U1.6）
+        result_tools = QHBoxLayout()
+        result_tools.setContentsMargins(0, 0, 0, 0)
+        result_tools.setSpacing(6)
+        self.start_frac_combo = QComboBox()
+        self.start_frac_combo.setAccessibleName('选择滚动预测起点')
+        self.start_frac_combo.currentIndexChanged.connect(
+            self._on_start_frac_changed)
+        start_label = QLabel('预测起点')
+        start_label.setProperty('role', 'muted')
+        result_tools.addWidget(start_label)
+        result_tools.addWidget(self.start_frac_combo)
+        result_tools.addStretch(1)
+        self.copy_table_btn = QPushButton('复制表格')
+        self.copy_table_btn.setProperty('role', 'ghost')
+        self.copy_table_btn.clicked.connect(self._copy_result_table)
+        self.csv_btn = QPushButton('导出 CSV')
+        self.csv_btn.setProperty('role', 'ghost')
+        self.csv_btn.clicked.connect(self._export_result_csv)
+        result_tools.addWidget(self.copy_table_btn)
+        result_tools.addWidget(self.csv_btn)
+        self.result_container_layout.addLayout(result_tools)
+
+        # 基线与口径说明
+        self.result_notes = QLabel()
+        self.result_notes.setProperty('role', 'muted')
+        self.result_notes.setWordWrap(True)
+        self.result_notes.setVisible(False)
+        self.result_container_layout.addWidget(self.result_notes)
+
         self.result_scroll.setWidget(self.result_container)
         self._show_result_state(
             '等待评估结果',
-            '导入数据并开始评估后，这里会显示失效循环、指标和置信区间。')
+            '导入数据并开始评估后，这里会显示滚动起点的 RMSE、'
+            'RUL 误差与相对平推的技能分。')
 
         result_layout.addWidget(self.result_scroll)
-        result_group.setLayout(result_layout)
 
         op_layout = QHBoxLayout()
         self.pause_btn = AnimatedButton('停止', 'danger')
@@ -839,34 +1202,23 @@ class MainWindow(QMainWindow):
 
         _configure_button_row(
             op_layout, (self.pause_btn, self.save_chart_btn, self.export_btn))
+        result_layout.addLayout(op_layout)
 
-        log_group = QGroupBox('训练评估进程')
-        log_layout = QVBoxLayout()
+        log_page = QWidget()
+        log_layout = QVBoxLayout(log_page)
+        log_layout.setContentsMargins(8, 8, 8, 8)
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
         log_layout.addWidget(self.log_text)
-        log_group.setLayout(log_layout)
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        result_wrapper = QWidget()
-        rw_layout = QVBoxLayout(result_wrapper)
-        rw_layout.setContentsMargins(0, 0, 0, 0)
-        rw_layout.addWidget(result_group)
-        rw_layout.addLayout(op_layout)
-
-        log_wrapper = QWidget()
-        lw_layout = QVBoxLayout(log_wrapper)
-        lw_layout.setContentsMargins(0, 0, 0, 0)
-        lw_layout.addWidget(log_group)
-
-        splitter.addWidget(result_wrapper)
-        splitter.addWidget(log_wrapper)
-        splitter.setSizes([300, 200])
-        splitter.setHandleWidth(2)
-        layout.addWidget(splitter)
+        self.result_tab_index = self.right_tabs.addTab(result_page, '评估结果')
+        self.log_tab_index = self.right_tabs.addTab(log_page, '训练日志')
+        layout.addWidget(self.right_tabs)
 
     def _set_running_state(self, running, message):
         """同步主操作、停止按钮、进度和状态文字。"""
+        if running:
+            self.right_tabs.setCurrentIndex(self.log_tab_index)
         locked_controls = [
             self.import_btn, self.import_dir_btn, self.import_json_btn,
             self.delete_btn, self.import_list,
@@ -879,8 +1231,8 @@ class MainWindow(QMainWindow):
         locked_controls.extend(
             widget for _, widget, _ in getattr(self, '_param_rows', []))
         locked_controls.extend([
-            self.adapter_combo, self.cc_step_spin, self.cv_step_spin,
-            self.discharge_step_spin,
+            self.adapter_combo, self.cc_step_input, self.cv_step_input,
+            self.discharge_step_input,
         ])
         for control in locked_controls:
             control.setEnabled(not running)
@@ -931,16 +1283,21 @@ class MainWindow(QMainWindow):
             widget.setVisible(visible)
 
     def _on_adapter_changed(self):
-        """切换数据源适配器时，启用/禁用工步配置控件"""
+        """切换数据源适配器时更新工步设置说明。"""
         from core.adapters import ADAPTERS
         adapter_name = self.adapter_combo.currentData()
         adapter_cls = ADAPTERS.get(adapter_name)
         if adapter_cls is None:
             return
         needs_steps = adapter_cls.needs_step_config()
-        self.cc_step_spin.setEnabled(needs_steps)
-        self.cv_step_spin.setEnabled(needs_steps)
-        self.discharge_step_spin.setEnabled(needs_steps)
+        tooltip = (
+            '留空表示“无”；请输入非负整数。当前数据格式将使用此工步设置'
+            if needs_steps else
+            '留空表示“无”；请输入非负整数。当前数据格式不读取工步，仍可提前自定义')
+        for step_input in (
+                self.cc_step_input, self.cv_step_input,
+                self.discharge_step_input):
+            step_input.setToolTip(tooltip)
 
     def import_files(self):
         from core.adapters import ADAPTERS
@@ -1054,9 +1411,9 @@ class MainWindow(QMainWindow):
         if adapter_index < 0:
             raise ValueError(f'不支持的数据适配器: {config.adapter_type}')
         self.adapter_combo.setCurrentIndex(adapter_index)
-        self.cc_step_spin.setValue(config.cc_step)
-        self.cv_step_spin.setValue(config.cv_step)
-        self.discharge_step_spin.setValue(config.discharge_step)
+        _set_step_input(self.cc_step_input, config.cc_step)
+        _set_step_input(self.cv_step_input, config.cv_step)
+        _set_step_input(self.discharge_step_input, config.discharge_step)
         self.select_mode(config.mode)
 
     def import_list_key_press(self, event):
@@ -1119,9 +1476,9 @@ class MainWindow(QMainWindow):
             device=target_device,
             norm_method=norm_map[self.norm_combo.currentText()],
             adapter_type=self.adapter_combo.currentData(),
-            cc_step=self.cc_step_spin.value(),
-            cv_step=self.cv_step_spin.value(),
-            discharge_step=self.discharge_step_spin.value(),
+            cc_step=_step_input_value(self.cc_step_input),
+            cv_step=_step_input_value(self.cv_step_input),
+            discharge_step=_step_input_value(self.discharge_step_input),
         )
 
         config.seed = self.seed_spin.value()
@@ -1145,6 +1502,11 @@ class MainWindow(QMainWindow):
         return config
 
     def start_evaluation(self):
+        if self.worker is not None:
+            show_message(
+                self, 'info', '任务仍在收尾',
+                '当前训练或预测任务尚未完全结束。请等待状态恢复为“准备就绪”后再开始新的任务。')
+            return
         if len(self.imported_paths) == 0:
             show_message(self, 'warning', '提示', '请先导入文件或文件夹。')
             return
@@ -1163,10 +1525,76 @@ class MainWindow(QMainWindow):
 
         if self.loaded_model is not None:
             self._run_prediction(config)
-        else:
+            return
+
+        destination = 'current'
+        if self._has_completed_training_run:
+            destination = self._ask_training_destination()
+        if destination == 'current':
             self._run_training(config)
+        elif destination == 'new':
+            self._launch_training_window(config)
+
+    def _ask_training_destination(self):
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle('开始新的模型训练')
+        dialog.setWindowIcon(get_dialog_icon('chart'))
+        dialog.setIcon(QMessageBox.Icon.Question)
+        dialog.setText('当前窗口已经保留了一次模型训练结果。')
+        dialog.setInformativeText(
+            '请选择在当前窗口继续，或复制当前数据与参数到新的完整窗口中训练。'
+            '在当前窗口训练会清空旧日志，但不会删除已有结果批次。')
+        current_button = dialog.addButton(
+            '在此窗口训练', QMessageBox.ButtonRole.AcceptRole)
+        new_button = dialog.addButton(
+            '在新窗口训练', QMessageBox.ButtonRole.ActionRole)
+        cancel_button = dialog.addButton(
+            '取消', QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(cancel_button)
+        dialog.setEscapeButton(cancel_button)
+        _apply_windows_paper_caption(dialog)
+        dialog.exec()
+        clicked = dialog.clickedButton()
+        if clicked is current_button:
+            return 'current'
+        if clicked is new_button:
+            return 'new'
+        return None
+
+    def _launch_training_window(self, config):
+        child = MainWindow()
+        child_config = TrainConfig.from_dict(config.to_dict())
+        child._apply_train_config(child_config)
+        child.imported_paths = list(self.imported_paths)
+        child.import_list.clear()
+        for index, path in enumerate(child.imported_paths):
+            if index < self.import_list.count():
+                display = self.import_list.item(index).text()
+            else:
+                display = os.path.basename(path.rstrip('/\\')) or path
+            child.import_list.addItem(display)
+        child._update_data_summary()
+
+        self._child_training_windows.append(child)
+        MainWindow._independent_windows.append(child)
+        child.destroyed.connect(
+            lambda _object=None, window=child:
+            self._forget_training_window(window))
+        child.show()
+        child.raise_()
+        child.activateWindow()
+        child._run_training(child_config)
+        return child
+
+    def _forget_training_window(self, window):
+        if window in self._child_training_windows:
+            self._child_training_windows.remove(window)
+        if window in MainWindow._independent_windows:
+            MainWindow._independent_windows.remove(window)
 
     def _run_training(self, config):
+        self._active_run_kind = 'training'
+        self._finish_status_message = '准备就绪'
         self._active_run_snapshot = RunSnapshot.capture(
             config, self.imported_paths)
         config = TrainConfig.from_dict(
@@ -1176,22 +1604,27 @@ class MainWindow(QMainWindow):
         self._eval_threshold_ratio = config.threshold_ratio
 
         self.log_text.clear()
-        self._show_result_state(
-            '正在分析电池数据',
-            '训练日志会持续更新。可随时点击“停止”结束当前任务。')
+        if not self._result_batches:
+            self._show_result_state(
+                '正在分析电池数据',
+                '训练日志会持续更新。可随时点击“停止”结束当前任务。')
         self._set_running_state(True, '正在训练模型')
         self.logger.info(f'开始评估，配置：{config}')
 
-        self.worker = EvalWorker(config, imported_paths)
+        self.worker = EvalWorker(config, imported_paths, parent=self)
         self.worker.log_signal.connect(self.append_log)
         self.worker.error_signal.connect(self.on_error)
         self.worker.result_signal.connect(self.on_result)
         self.worker.progress_signal.connect(self.on_progress)
         self.worker.finished_signal.connect(self.on_finished)
+        self.worker.finished.connect(self.on_finished)
+        self.worker.finished.connect(self.worker.deleteLater)
         self.worker.final_model_signal.connect(self.on_final_model_ready)
         self.worker.start()
 
     def _run_prediction(self, config):
+        self._active_run_kind = 'prediction'
+        self._finish_status_message = '准备就绪'
         config.window_size = self.loaded_metadata['window_size']
         if 'rated_capacity' in self.loaded_metadata:
             config.rated_capacity = self.loaded_metadata['rated_capacity']
@@ -1206,21 +1639,24 @@ class MainWindow(QMainWindow):
         self._eval_threshold_ratio = config.threshold_ratio
 
         self.log_text.clear()
-        self._show_result_state(
-            '正在分析电池数据',
-            '正在使用已加载模型生成预测结果。')
+        if not self._result_batches:
+            self._show_result_state(
+                '正在分析电池数据',
+                '正在使用已加载模型生成预测结果。')
         self._set_running_state(True, '正在生成预测')
 
         from ui.predict_worker import PredictWorker
         self.worker = PredictWorker(
             self.loaded_model, self.loaded_metadata,
-            imported_paths, config
+            imported_paths, config, parent=self
         )
         self.worker.log_signal.connect(self.append_log)
         self.worker.error_signal.connect(self.on_error)
         self.worker.result_signal.connect(self.on_result)
         self.worker.progress_signal.connect(self.on_progress)
         self.worker.finished_signal.connect(self.on_finished)
+        self.worker.finished.connect(self.on_finished)
+        self.worker.finished.connect(self.worker.deleteLater)
         self.worker.start()
 
     def pause_evaluation(self):
@@ -1230,8 +1666,11 @@ class MainWindow(QMainWindow):
             if self._request_worker_stop(timeout_ms=3000):
                 self.append_log('评估已在安全检查点停止。')
                 self._set_running_state(False, '评估已停止')
-                self._show_result_state(
-                    '评估已停止', '参数和导入数据均已保留，可调整后重新开始。')
+                if self._result_batches:
+                    self.right_tabs.setCurrentIndex(self.result_tab_index)
+                else:
+                    self._show_result_state(
+                        '评估已停止', '参数和导入数据均已保留，可调整后重新开始。')
             else:
                 show_message(
                     self, 'warning', '仍在安全停止',
@@ -1245,7 +1684,7 @@ class MainWindow(QMainWindow):
         worker.request_stop()
         worker.requestInterruption()
         if worker.wait(timeout_ms):
-            self.worker = None
+            self.on_finished(worker)
             return True
         if not closing:
             self._set_running_state(True, '正在安全停止，请稍候…')
@@ -1352,12 +1791,19 @@ class MainWindow(QMainWindow):
         self._tcp_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         self._tcp_window.show()
 
+        # A10：默认只监听本机；开放局域网必须在界面里显式勾选，
+        # 并自动生成 token 供客户端握手。
+        allow_lan = False
+        if hasattr(self, 'tcp_lan_check') and self.tcp_lan_check.isChecked():
+            allow_lan = True
         self.tcp_server = TCPServerWorker(
-            self.loaded_model, self.loaded_metadata, config, port=8888
+            self.loaded_model, self.loaded_metadata, config, port=8888,
+            allow_lan=allow_lan,
         )
         self.tcp_server.status_signal.connect(self.append_log)
         self.tcp_server.error_signal.connect(self.on_error)
-        self.tcp_server.data_received_signal.connect(self._tcp_window.update_status)
+        self.tcp_server.data_received_signal.connect(
+            self._tcp_window.update_status)
         self.tcp_server.soh_update_signal.connect(self._tcp_window.update_soh)
         self.tcp_server.rul_update_signal.connect(self._tcp_window.update_rul)
         self.tcp_server.prediction_signal.connect(
@@ -1370,7 +1816,13 @@ class MainWindow(QMainWindow):
         self.tcp_btn.setProperty('role', 'danger')
         self.tcp_btn.style().unpolish(self.tcp_btn)
         self.tcp_btn.style().polish(self.tcp_btn)
-        self.append_log('TCP 数据接入服务已启动，监听端口 8888...')
+        if allow_lan:
+            self.append_log(
+                f'TCP 数据接入服务已启动（局域网模式，端口 8888）；'
+                f'客户端首条消息需带 token：{self.tcp_server.auth_token}')
+        else:
+            self.append_log(
+                'TCP 数据接入服务已启动，仅监听本机 127.0.0.1:8888...')
 
     def _stop_tcp_server(self):
         if self.tcp_server is not None:
@@ -1391,26 +1843,39 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f'实时数据 | 容量: {capacity:.6f} Ah | SOH: {soh:.1f}%')
 
     def on_soh_update(self, soh_info):
+        """A10：SOH 阶段表按「距最新已观测循环」的口径展示。"""
         rows = ['<table border="1" cellpadding="3" cellspacing="0">',
-                '<tr><th>SOH (%)</th><th>循环次数</th><th>容量 (Ah)</th></tr>']
-        for pct in [100, 95, 90, 85, 80]:
-            info = soh_info.get(pct, {})
-            cycle = info.get('cycle')
-            cap = info.get('capacity')
-            cycle_str = str(cycle) if cycle is not None else '-'
-            cap_str = f'{cap:.4f}' if isinstance(cap, (int, float)) else '-'
-            rows.append(f'<tr><td>{pct}%</td><td>{cycle_str}</td><td>{cap_str}</td></tr>')
+                '<tr><th>SOH (%)</th><th>距最新循环</th><th>状态</th></tr>']
+        for pct in (100, 95, 90, 85, 80):
+            info = soh_info.get(pct, {}) or {}
+            offset = info.get('cycle_offset')
+            if offset is None:
+                state = '预测期内未到达'
+            elif info.get('reached'):
+                state = '✓ 已到达'
+            else:
+                state = '预测中'
+            rows.append(
+                f'<tr><td>{pct}%</td>'
+                f'<td>{"—" if offset is None else f"{offset:+d}"}</td>'
+                f'<td>{state}</td></tr>')
         rows.append('</table>')
         self.soh_table_label.setText(''.join(rows))
 
     def on_rul_update(self, rul_info):
+        """A10：RUL = 距最新已观测循环还有几个未来循环越过失效阈值。"""
+        rul = rul_info.get('rul')
+        if rul is None:
+            value = '预测期内不会越过失效阈值'
+        elif rul == 0:
+            value = '0 个循环（当前已低于失效阈值）'
+        else:
+            value = f'{int(rul)} 个循环'
         rows = ['<table border="1" cellpadding="3" cellspacing="0">',
-                '<tr><th>当前 SOH (%)</th><th>距 SOH=80% 剩余循环</th></tr>']
-        for pct in [85, 84, 83, 82, 81]:
-            remaining = rul_info.get(pct)
-            r_str = str(remaining) if remaining is not None else '-'
-            rows.append(f'<tr><td>{pct}%</td><td>{r_str}</td></tr>')
-        rows.append('</table>')
+                '<tr><th>剩余寿命 (RUL)</th><th>失效阈值</th></tr>',
+                f'<tr><td>{value}</td>'
+                f'<td>{rul_info.get("threshold", 0):.4f} Ah</td></tr>',
+                '</table>']
         self.rul_table_label.setText(''.join(rows))
 
     def on_tcp_prediction(self, measured, predicted):
@@ -1484,14 +1949,17 @@ class MainWindow(QMainWindow):
             default=QMessageBox.StandardButton.Ok)
 
     def _install_sup_sub_shortcuts(self):
-        """安装全局上下标快捷键 (Ctrl+= 上标, Ctrl+Shift+= 下标)"""
+        """安装全局上下标快捷键 (Ctrl+= 上标, Ctrl+Shift+= 下标) 与主题切换 (Ctrl+T)"""
         sup_sc = QShortcut(QKeySequence('Ctrl+='), self)
         sup_sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         sup_sc.activated.connect(lambda: apply_sup_sub('^'))
         sub_sc = QShortcut(QKeySequence('Ctrl+Shift+='), self)
         sub_sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         sub_sc.activated.connect(lambda: apply_sup_sub('_'))
-        self._sup_sub_shortcuts = [sup_sc, sub_sc]
+        theme_sc = QShortcut(QKeySequence('Ctrl+T'), self)
+        theme_sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        theme_sc.activated.connect(self.toggle_theme)
+        self._sup_sub_shortcuts = [sup_sc, sub_sc, theme_sc]
 
     _HELP_CONTENT = {
         'RNN': (
@@ -1647,13 +2115,54 @@ class MainWindow(QMainWindow):
         show_message(self, 'error', '错误', concise)
         self.append_log('错误：' + concise)
         self.logger.error(full_message)
-        self._set_running_state(False, '评估遇到错误')
-        self._show_result_state('评估未完成', '请根据弹窗或训练日志中的提示检查数据和参数。')
+        self._finish_status_message = '评估遇到错误'
+        self._active_run_snapshot = None
+        self._active_run_kind = None
+        if self._result_batches:
+            self.right_tabs.setCurrentIndex(self.log_tab_index)
+        else:
+            self._show_result_state(
+                '评估未完成', '请根据弹窗或训练日志中的提示检查数据和参数。')
 
-    def on_finished(self):
-        if not self.start_btn.isEnabled():
-            self._set_running_state(False, '准备就绪')
+    def show_error_toast(self, message):
+        """A1：把任何线程里未捕获的异常变成一条**非阻塞**提示。
+
+        由 ``utils.crash_guard.bridge.error`` 信号驱动；不在子线程里直接
+        创建 QMessageBox，也不会中断用户正在做的事。
+        """
+        text = str(message)
+        self.append_log(f'未处理的异常：{text}')
+        try:
+            self.status_bar.showMessage(f'未处理的异常：{text}', 15000)
+        except AttributeError:
+            pass
+        if self._error_toast is None:
+            self._error_toast = QLabel(self)
+            self._error_toast.setProperty('role', 'dangerText')
+            self._error_toast.setStyleSheet(
+                'padding: 6px 10px; border-radius: 4px;')
+            self._error_toast.setWordWrap(True)
+            self._error_toast.setVisible(False)
+        self._error_toast.setText(f'✕ 未处理的异常：{text}')
+        self._error_toast.setVisible(True)
+        QTimer.singleShot(15000, lambda: self._error_toast.setVisible(False))
+
+    def on_finished(self, worker=None):
+        signal_worker = self.sender()
+        if worker is None and hasattr(signal_worker, 'isRunning'):
+            worker = signal_worker
+        worker = worker or self.worker
+        if worker is None or self.worker is not worker:
+            return
+        if worker.isRunning():
+            # 自定义 finished_signal 在 run() 返回前发出；真正解锁必须等
+            # QThread.finished，避免旧线程仍存活时被新任务覆盖。
+            return
         self.worker = None
+        message = self._finish_status_message
+        self._finish_status_message = '准备就绪'
+        if not self.start_btn.isEnabled():
+            self._set_running_state(False, message)
 
     def on_result(self, results, elapsed):
         if self._active_run_snapshot is None:
@@ -1663,60 +2172,170 @@ class MainWindow(QMainWindow):
         for name, result in results.items():
             item = result['detail']
             pred = result['prediction']
-            recursive = item.get('recursive_prediction')
-            one_step = item.get('one_step_prediction')
-            if recursive is not None and one_step is not None:
-                prefix_length = max(0, len(pred) - len(one_step))
-                pred = list(pred[:prefix_length]) + list(recursive)
-                item['failure_cycle_protocol'] = 'recursive_future'
-            else:
-                item['failure_cycle_protocol'] = 'legacy_prediction'
             battery_data = self.worker.battery_dict.get(name, {})
             measured = np.asarray(
                 battery_data.get('capacity', pred), dtype=np.float64)
+            # A4：失效语义基于滚动起点的递归预测（而不是一步预测）
+            recursive = item.get('recursive_prediction')
+            forecast = item.get('forecast')
+            if forecast:
+                failure_prediction = forecast
+                prediction_start = int(
+                    item.get('forecast_start', len(measured) - len(forecast)))
+                item['failure_cycle_protocol'] = 'rolling_origin'
+            elif recursive is not None:
+                failure_prediction = recursive
+                prediction_start = len(measured) - len(recursive)
+                item['failure_cycle_protocol'] = 'recursive_future'
+            else:
+                failure_prediction = pred
+                prediction_start = 0
+                item['failure_cycle_protocol'] = 'legacy_prediction'
             cycle_ids = battery_data.get(
-                'cycle', np.arange(len(measured)))
+                'cycle', np.arange(1, len(measured) + 1))
             semantics = analyze_failure_cycles(
-                cycle_ids, measured, pred, threshold)
+                cycle_ids, measured, failure_prediction, threshold,
+                prediction_start=prediction_start)
             item.update(semantics)
             item['failure_cycle'] = semantics[
                 'predicted_failure_cycle']
             item['threshold'] = threshold
 
-        self._last_run_snapshot = self._active_run_snapshot.with_results(
+        completed_snapshot = self._active_run_snapshot.with_results(
             results, elapsed_seconds=elapsed)
         self._active_run_snapshot = None
-        results = self._last_run_snapshot.results_dict()
-        self._last_results = results
-        self._last_score = [
-            [result['score']] for result in results.values()
-        ]
-        self._last_pred = {
+        completed_results = completed_snapshot.results_dict()
+        predictions = {
             name: result['prediction'] for name, result in results.items()
         }
-        self._last_detail = [
-            result['detail'] for result in results.values()
+        detail_list = [
+            result['detail'] for result in completed_results.values()
         ]
-        self._last_elapsed = elapsed
-
-        self.battery_list = list(results)
-        self.battery_dict = {
-            name: self.worker.battery_dict[name]
-            for name in self.battery_list
+        battery_names = list(completed_results)
+        chart_battery_data = {
+            name: {
+                'capacity': np.asarray(
+                    self.worker.battery_dict[name]['capacity'],
+                    dtype=np.float64,
+                ).copy()
+            }
+            for name in battery_names
             if name in self.worker.battery_dict
         }
+        run_kind = self._active_run_kind or 'training'
+        kind_label = '训练评估' if run_kind == 'training' else '模型预测'
+        mode = completed_snapshot.config_dict().get('mode', self.current_mode)
+        batch_number = len(self._result_batches) + 1
+        batch = {
+            'label': f'第 {batch_number} 次 · {kind_label} · {mode}',
+            'snapshot': completed_snapshot,
+            'results': completed_results,
+            'detail': detail_list,
+            'predictions': predictions,
+            'battery_names': battery_names,
+            'battery_data': chart_battery_data,
+            'elapsed': float(elapsed),
+            'rated_capacity': self._eval_rated_capacity,
+            'threshold_ratio': self._eval_threshold_ratio,
+            'selected_metric': self.metric_combo.currentText(),
+            'run_kind': run_kind,
+        }
+        self._append_result_batch(batch)
+        if run_kind == 'training':
+            self._has_completed_training_run = True
+        self._active_run_kind = None
+        self._finish_status_message = f'评估完成，耗时 {elapsed:.2f}s'
 
-        self.update_result_table(self._last_detail, elapsed)
-        self.canvas.plot_results(self.battery_list, self.battery_dict, self._last_pred,
-                                 self._eval_rated_capacity, self._eval_threshold_ratio)
+    def _append_result_batch(self, batch):
+        self._result_batches.append(batch)
+        index = len(self._result_batches) - 1
+        blocker = QSignalBlocker(self.result_batch_combo)
+        self.result_batch_combo.addItem(batch['label'])
+        self.result_batch_combo.setCurrentIndex(index)
+        del blocker
+        self.result_batch_bar.setVisible(True)
+        self._display_result_batch(index)
+
+    def _display_result_batch(self, index):
+        if index < 0 or index >= len(self._result_batches):
+            return
+        batch = self._result_batches[index]
+        self._last_run_snapshot = batch['snapshot']
+        self._last_results = batch['results']
+        self._last_score = [
+            [result['score']] for result in batch['results'].values()
+        ]
+        self._last_pred = batch['predictions']
+        self._last_detail = batch['detail']
+        self._last_elapsed = batch['elapsed']
+        self.battery_list = list(batch['battery_names'])
+        self.battery_dict = batch['battery_data']
+        self._eval_rated_capacity = batch['rated_capacity']
+        self._eval_threshold_ratio = batch['threshold_ratio']
+
+        self.update_result_table(
+            self._last_detail,
+            self._last_elapsed,
+            selected_metric=batch['selected_metric'],
+        )
+        detail_map = {
+            item.get('battery'): item for item in self._last_detail
+            if isinstance(item, dict)
+        }
+        # U2：把滚动起点的 detail（预测起点 / 递归预测 / 区间 / EOL）交给图表；
+        # 老版画布不认识 details 参数时回退到位置参数，保证不崩。
+        try:
+            self.canvas.plot_results(
+                self.battery_list,
+                self.battery_dict,
+                self._last_pred,
+                self._eval_rated_capacity,
+                self._eval_threshold_ratio,
+                details=detail_map,
+            )
+        except TypeError:
+            self.canvas.plot_results(
+                self.battery_list,
+                self.battery_dict,
+                self._last_pred,
+                self._eval_rated_capacity,
+                self._eval_threshold_ratio,
+            )
         self.export_btn.setEnabled(True)
-        self._set_running_state(False, f'评估完成，耗时 {elapsed:.2f}s')
+        self.right_tabs.setCurrentIndex(self.result_tab_index)
 
     def _show_result_state(self, title, detail):
-        """在结果区呈现空、加载、停止或错误状态。"""
-        self.clear_result_display()
+        """在结果区呈现空、加载、停止或错误状态。
+
+        结果表现在是**常驻控件**，所以这里只清空它的数据、隐藏工具行，
+        不再销毁它（旧实现会把整块区域 rebuild 一遍）。
+        """
+        if hasattr(self, 'result_summary'):
+            self.result_summary.setVisible(False)
+        if (not title.startswith('正在') and
+                hasattr(self, 'result_tab_index')):
+            self.right_tabs.setCurrentIndex(self.result_tab_index)
+        self._last_detail_list = []
+        if hasattr(self, 'result_model'):
+            self.result_model.set_rows([])
+        # 先移除之前的状态横幅，避免多条叠在一起
+        for index in range(self.result_container_layout.count() - 1, -1, -1):
+            widget = self.result_container_layout.itemAt(index).widget()
+            if widget is not None and widget.objectName() == 'resultStateBanner':
+                self.result_container_layout.takeAt(index)
+                widget.setParent(None)
+                widget.deleteLater()
+        for name in ('result_view', 'result_notes'):
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.setVisible(False)
+        for name in ('copy_table_btn', 'csv_btn', 'start_frac_combo'):
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.setVisible(False)
         state = QFrame()
         state.setProperty('role', 'resultState')
+        state.setObjectName('resultStateBanner')
         state_layout = QVBoxLayout(state)
         state_layout.setContentsMargins(20, 24, 20, 22)
         state_layout.setSpacing(8)
@@ -1759,131 +2378,215 @@ class MainWindow(QMainWindow):
         self.result_container_layout.addWidget(state)
 
     def clear_result_display(self):
-        while self.result_container_layout.count():
-            child = self.result_container_layout.takeAt(0)
-            widget = child.widget()
-            if widget:
+        """移除状态横幅，并恢复结果表工具行（不动常驻的结果表本身）。"""
+        for index in range(self.result_container_layout.count() - 1, -1, -1):
+            widget = self.result_container_layout.itemAt(index).widget()
+            if widget is not None and widget.objectName() == 'resultStateBanner':
+                self.result_container_layout.takeAt(index)
                 widget.setParent(None)
                 widget.deleteLater()
+        for name in ('result_view', 'result_notes', 'copy_table_btn',
+                     'csv_btn', 'start_frac_combo'):
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.setVisible(True)
 
-    def update_result_table(self, detail_list, elapsed):
+    def update_result_table(self, detail_list, elapsed, selected_metric=None):
+        """U1：把结果渲染成可排序表格 + 跨电池汇总行 + 基线行。
+
+        旧的卡片堆（N 个 QGroupBox、5 段复制粘贴的指标代码、6 位小数）已经
+        被 QTableView + QAbstractTableModel + QSortFilterProxyModel 取代。
+        """
+        self._last_detail_list = list(detail_list or [])
+        # 恢复被状态横幅隐藏的结果表与工具行
         self.clear_result_display()
-        selected_metric = self.metric_combo.currentText()
-        show_all = (selected_metric == '全部')
+        self._refresh_start_frac_options(self._last_detail_list)
+        self._rebuild_result_rows()
+        self._update_result_summary(
+            self._last_detail_list, elapsed,
+            selected_metric or self.metric_combo.currentText())
 
-        def _should_show(metric_name):
-            if show_all:
-                return True
-            return selected_metric == metric_name
+    def _refresh_start_frac_options(self, detail_list):
+        """按当前结果里实际存在的滚动起点填充下拉框。"""
+        fracs = set()
+        for item in detail_list or []:
+            rolling = (item or {}).get('rolling') or {}
+            fracs.update(rolling.get('per_start') or {})
+        options = sorted(float(f) for f in fracs)
+        combo = getattr(self, 'start_frac_combo', None)
+        if combo is None:
+            return
+        blocker = QSignalBlocker(combo)
+        combo.clear()
+        for frac in options:
+            combo.addItem(f'{frac:.0%}', frac)
+        primary = next(
+            (item.get('primary_start_frac') for item in detail_list
+             if item.get('primary_start_frac') is not None), None)
+        if primary is not None:
+            index = combo.findData(float(primary))
+            if index >= 0:
+                combo.setCurrentIndex(index)
+        del blocker
 
-        for idx, item in enumerate(detail_list):
-            battery_group = QGroupBox(item['battery'])
-            battery_group.setProperty('role', 'resultCard')
-            battery_group.setObjectName(f'result_card_{idx}')
-            form_layout = QFormLayout()
-            form_layout.setContentsMargins(14, 10, 14, 10)
-            form_layout.setSpacing(6)
+    def _current_start_frac(self):
+        combo = getattr(self, 'start_frac_combo', None)
+        if combo is None or combo.count() == 0:
+            return None
+        data = combo.currentData()
+        return None if data is None else float(data)
 
-            form_layout.addRow('电池:', QLabel(str(item['battery'])))
-            form_layout.addRow('循环数:', QLabel(str(item['cycles'])))
-            form_layout.addRow('模型:', QLabel(str(item['model'])))
+    def _baseline_rows(self, detail_list):
+        """收集基线（平推 / 线性外推 / 双指数）用于并排展示（A9）。"""
+        baselines = {}
+        for item in detail_list or []:
+            for name, entry in ((item or {}).get('baselines') or {}).items():
+                value = entry.get('rmse')
+                if value is None:
+                    continue
+                baselines.setdefault(name, []).append(float(value))
+        return {
+            name: {'rmse': float(np.mean(values))}
+            for name, values in baselines.items() if values
+        }
 
-            ci = item.get('ci', {})
-            n_seeds = item.get('n_seeds', 1)
+    def _rebuild_result_rows(self):
+        detail_list = getattr(self, '_last_detail_list', [])
+        if not detail_list:
+            return
+        rows = rows_from_details(
+            detail_list,
+            start_frac=self._current_start_frac(),
+            baselines=self._baseline_rows(detail_list),
+        )
+        self.result_model.set_tokens(theme_tokens(self._theme_mode))
+        self.result_model.set_rows(rows)
+        # 列宽在 build_right_panel 里显式设定；这里不再 resizeColumnsToContents，
+        # 否则汇总行的长文本会把列撑宽、把前排的指标挤出可视区。
 
-            measured_fc = item.get('measured_failure_cycle')
-            if measured_fc is not None:
-                measured_lbl = QLabel(f'第 {measured_fc} 个原始循环')
-                measured_lbl.setProperty('role', 'resultStatus')
-                measured_lbl.setProperty('state', 'danger')
-            else:
-                measured_lbl = QLabel('观测期内未失效')
-                measured_lbl.setProperty('role', 'resultStatus')
-                measured_lbl.setProperty('state', 'success')
-            form_layout.addRow('实测失效:', measured_lbl)
+        summary = summary_row(rows)
+        notes = []
+        if summary is not None:
+            # 汇总行的单元格只放均值（窄面板里不被截断），
+            # 完整的 mean ± std 与 bootstrap 区间写在这里。
+            stats = []
+            for key, label, fmt in (('rmse', 'RMSE', '{:.4f}'),
+                                    ('mae', 'MAE', '{:.4f}'),
+                                    ('skill', '技能分', '{:+.3f}')):
+                mean, std = summary.get(key), summary.get(f'{key}_std')
+                if mean is None:
+                    continue
+                # 单块电池时 std 恒为 0，不显示无意义的「± 0.0000」
+                if std:
+                    stats.append(f'{label} {fmt.format(mean)}'
+                                 f' ± {fmt.format(std).lstrip("+")}')
+                else:
+                    stats.append(f'{label} {fmt.format(mean)}')
+            if stats:
+                notes.append(
+                    f'跨电池汇总（n={summary["n_batteries"]} 块电池）：'
+                    + '，'.join(stats))
+            mean, lo, hi = bootstrap_summary(rows, 'rmse')
+            if np.isfinite(lo) and np.isfinite(hi) and lo != hi:
+                notes.append(
+                    f'RMSE 的 bootstrap 95% 区间：[{lo:.4f}, {hi:.4f}] Ah'
+                    '（n = 电池数才是泛化不确定性的来源，不是随机种子）')
+        alpha_values = [
+            item.get('persistence_blend') for item in detail_list
+            if item.get('persistence_blend') is not None
+        ]
+        if alpha_values and min(alpha_values) < 0.05:
+            notes.append(
+                '⚠ 有电池的持久性混合系数 α < 0.05：模型未超越平推基线，'
+                '递归预测已退化为水平线。')
+        # 置信区间口径说明：它只是同一留一折内的随机种子波动
+        if any(int(item.get('n_seeds', 1)) > 1 for item in detail_list):
+            notes.append(
+                '置信区间仅表示同一留一折内的随机种子波动，'
+                '不代表跨电池总体不确定性。')
+        if notes:
+            self.result_notes.setText('\n'.join(notes))
+            self.result_notes.setVisible(True)
+        else:
+            self.result_notes.setVisible(False)
 
-            fc = item.get('failure_cycle')
-            if fc is not None:
-                fc_lbl = QLabel(f'第 {fc} 个原始循环')
-                fc_lbl.setProperty('role', 'resultStatus')
-                fc_lbl.setProperty('state', 'warning')
-                form_layout.addRow('模型预测失效:', fc_lbl)
-                cap_lbl = QLabel(f'{item["threshold"]:.2f} Ah')
-                cap_lbl.setProperty('role', 'resultStatus')
-                cap_lbl.setProperty('state', 'danger')
-                form_layout.addRow('失效容量:', cap_lbl)
-            else:
-                ok_lbl = QLabel('观测期内未预测到失效')
-                ok_lbl.setProperty('role', 'resultStatus')
-                ok_lbl.setProperty('state', 'success')
-                form_layout.addRow('模型预测失效:', ok_lbl)
+    def _on_start_frac_changed(self, _index):
+        if getattr(self, '_last_detail_list', None):
+            self._rebuild_result_rows()
 
-            # RMSE
-            if _should_show('RMSE'):
-                rmse_lbl = QLabel(f"{item['rmse']:.6f}")
-                form_layout.addRow('RMSE:', rmse_lbl)
-                if n_seeds > 1 and 'rmse' in ci:
-                    c = ci['rmse']
-                    ci_lbl = QLabel(f"{c['mean']:.4f} ± {c['std']:.4f}\n"
-                                    f"95%CI: [{c['lower']:.4f}, {c['upper']:.4f}]")
-                    ci_lbl.setStyleSheet('color: #59635D; font-size: 9pt;')
-                    form_layout.addRow('  置信区间:', ci_lbl)
+    def _copy_result_table(self):
+        """把当前结果表复制到剪贴板（Tab 分隔，可直接粘进 Excel）。"""
+        rows = self.result_model.display_rows()
+        if not rows:
+            show_message(self, 'info', '暂无结果', '当前没有可复制的结果。')
+            return
+        header = [column[0] for column in COLUMNS]
+        lines = ['\t'.join(header)]
+        for row in rows:
+            lines.append('\t'.join(
+                ResultTableModel._display_text(
+                    row, column[1],
+                    ResultTableModel._cell_value(row, column[1]),
+                    column[2])
+                for column in COLUMNS))
+        QApplication.clipboard().setText('\n'.join(lines))
+        self.append_log('结果表已复制到剪贴板。')
 
-            # MAE
-            if _should_show('MAE'):
-                mae_lbl = QLabel(f"{item['mae']:.6f}")
-                form_layout.addRow('MAE:', mae_lbl)
-                if n_seeds > 1 and 'mae' in ci:
-                    c = ci['mae']
-                    ci_lbl = QLabel(f"{c['mean']:.4f} ± {c['std']:.4f}\n"
-                                    f"95%CI: [{c['lower']:.4f}, {c['upper']:.4f}]")
-                    ci_lbl.setStyleSheet('color: #59635D; font-size: 9pt;')
-                    form_layout.addRow('  置信区间:', ci_lbl)
+    def _export_result_csv(self):
+        """导出结果表 CSV（U1.6）。"""
+        rows = self.result_model.display_rows()
+        if not rows:
+            show_message(self, 'info', '暂无结果', '当前没有可导出的结果。')
+            return
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, '导出结果表', os.fspath(OUTPUTS_DIR / '评估结果.csv'),
+            'CSV 文件 (*.csv)')
+        if not file_path:
+            return
+        try:
+            with open(file_path, 'w', encoding='utf-8-sig', newline='') as stream:
+                stream.write(to_csv(rows))
+        except OSError as error:
+            show_message(self, 'error', '导出失败', f'无法写入文件：{error}')
+            return
+        self.append_log(f'结果表已导出：{file_path}')
 
-            # R²
-            if _should_show('R²'):
-                r2_lbl = QLabel(f"{item['r2']:.6f}")
-                form_layout.addRow('R²:', r2_lbl)
-                if n_seeds > 1 and 'r2' in ci:
-                    c = ci['r2']
-                    ci_lbl = QLabel(f"{c['mean']:.4f} ± {c['std']:.4f}\n"
-                                    f"95%CI: [{c['lower']:.4f}, {c['upper']:.4f}]")
-                    ci_lbl.setStyleSheet('color: #59635D; font-size: 9pt;')
-                    form_layout.addRow('  置信区间:', ci_lbl)
+    def _update_result_summary(self, detail_list, elapsed, selected_metric):
+        metric_map = {
+            'RMSE': 'rmse',
+            'MAE': 'mae',
+            'R²': 'r2',
+            'Pearson': 'pearson',
+            'RE': 're',
+            '全部': 'rmse',
+        }
+        metric_label = 'RMSE' if selected_metric == '全部' else selected_metric
+        metric_key = metric_map[selected_metric]
+        values = [
+            float(item[metric_key])
+            for item in detail_list
+            if item.get(metric_key) is not None and
+            np.isfinite(item.get(metric_key))
+        ]
+        models = sorted({str(item.get('model', '未知模型'))
+                         for item in detail_list})
+        model_text = models[0] if len(models) == 1 else '多模型'
+        count = len(detail_list)
+        value_text = (
+            f'{float(np.mean(values)):.6f}' if values else 'N/A（截尾）')
+        seed_count = max(
+            (int(item.get('n_seeds', 1)) for item in detail_list),
+            default=1,
+        )
 
-            # Pearson
-            if _should_show('Pearson'):
-                pear_lbl = QLabel(f"{item['pearson']:.6f}")
-                form_layout.addRow('Pearson:', pear_lbl)
-                if n_seeds > 1 and 'pearson' in ci:
-                    c = ci['pearson']
-                    ci_lbl = QLabel(f"{c['mean']:.4f} ± {c['std']:.4f}\n"
-                                    f"95%CI: [{c['lower']:.4f}, {c['upper']:.4f}]")
-                    ci_lbl.setStyleSheet('color: #59635D; font-size: 9pt;')
-                    form_layout.addRow('  置信区间:', ci_lbl)
-
-            # RE
-            if _should_show('RE'):
-                re_lbl = QLabel(format_metric_value(item.get('re')))
-                form_layout.addRow('RE:', re_lbl)
-                if n_seeds > 1 and 're' in ci:
-                    c = ci['re']
-                    ci_lbl = QLabel(f"{c['mean']:.4f} ± {c['std']:.4f}\n"
-                                    f"95%CI: [{c['lower']:.4f}, {c['upper']:.4f}]")
-                    ci_lbl.setStyleSheet('color: #59635D; font-size: 9pt;')
-                    form_layout.addRow('  置信区间:', ci_lbl)
-
-            if n_seeds > 1:
-                ns_lbl = QLabel(f'{n_seeds} 次实验')
-                ns_lbl.setStyleSheet('color: #315B5A; font-weight: 600;')
-                form_layout.addRow('多种子数:', ns_lbl)
-                ci_scope = QLabel(
-                    '仅表示同一留一折内的随机种子波动，'
-                    '不代表跨电池总体不确定性')
-                ci_scope.setWordWrap(True)
-                ci_scope.setStyleSheet(
-                    'color: #59635D; font-size: 9pt;')
-                form_layout.addRow('置信区间口径:', ci_scope)
-
-            battery_group.setLayout(form_layout)
-            self.result_container_layout.addWidget(battery_group)
+        self.result_summary_title.setText(f'{count} 块电池 · {model_text}')
+        self.result_summary_metric.setText(
+            f'平均 {metric_label} {value_text}')
+        self.result_summary_meta.setText(
+            f'耗时 {elapsed:.2f} 秒 · {seed_count} 次随机种子')
+        self.result_summary.setAccessibleName(
+            f'{self.result_summary_title.text()}，'
+            f'{self.result_summary_metric.text()}，'
+            f'{self.result_summary_meta.text()}')
+        self.result_summary.setVisible(True)
+        self.right_tabs.setCurrentIndex(self.result_tab_index)

@@ -146,5 +146,66 @@ class TrainConfigRoundTripTests(unittest.TestCase):
             app.processEvents()
 
 
+class CanonicalConfigKeyTests(unittest.TestCase):
+    """A11：配置里只存规范键，界面文本只在界面层转换。"""
+
+    def test_device_normalization_accepts_ui_text_and_canonical_keys(self):
+        normalize = config_module.normalize_device
+        for raw, expected in (
+                ("GPU (CUDA)", "cuda"), ("gpu", "cuda"), ("cuda", "cuda"),
+                ("CPU", "cpu"), ("cpu", "cpu")):
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize(raw), expected)
+        # 未知值安全回退，不抛异常
+        self.assertEqual(normalize("nonsense"), "cpu")
+        self.assertEqual(normalize(None), "cpu")
+
+    def test_legacy_config_written_with_ui_text_still_loads_as_canonical(self):
+        """旧版本把界面文本直接写进 JSON，导致 GPU 被静默切回 CPU。"""
+        legacy = {
+            "device": "GPU (CUDA)",
+            "norm_method": "额定容量归一化",
+            "metric": "MAE",
+            "mode": "RF",
+            "adapter_type": "NASA",
+        }
+        config = TrainConfig.from_dict(legacy)
+        self.assertEqual(config.device, "cuda")
+        self.assertEqual(config.norm_method, "rated")
+        self.assertEqual(config.metric, "mae")
+
+    def test_save_import_save_round_trip_is_field_identical(self):
+        import json
+
+        original = TrainConfig(
+            mode="RF", window_size=16, rated_capacity=2.0,
+            threshold_ratio=0.7, device="cuda", norm_method="rated",
+            metric="mae", adapter_type="NASA",
+            feature_columns=("capacity", "dq_v", "CCCT"),
+        )
+        first = original.to_dict()
+        reloaded = TrainConfig.from_dict(json.loads(json.dumps(first)))
+        self.assertEqual(first, reloaded.to_dict())
+        # 存进去的必须是规范键，不是界面文本
+        self.assertEqual(first["device"], "cuda")
+        self.assertEqual(first["norm_method"], "rated")
+        self.assertEqual(first["metric"], "mae")
+
+    def test_feature_list_always_contains_capacity_first(self):
+        normalize = config_module.normalize_feature_list
+        self.assertEqual(normalize(None), ("capacity",))
+        self.assertEqual(normalize("dq_v"), ("capacity", "dq_v"))
+        self.assertEqual(normalize(("CCCT", "capacity")),
+                         ("capacity", "CCCT"))
+        # 未知列被丢弃
+        self.assertEqual(normalize("capacity,dq_v,bogus"),
+                         ("capacity", "dq_v"))
+        self.assertEqual(normalize([]), ("capacity",))
+
+    def test_unsupported_adapter_is_rejected(self):
+        with self.assertRaises(ValueError):
+            TrainConfig(adapter_type="Bogus")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -103,13 +103,17 @@ class ProgressContractTests(unittest.TestCase):
             progress_callback=events.append,
         )
 
+        # A2/A8 后循环模型的训练发生在「内层留一电池交叉验证 + 全量定型」里，
+        # 因此每个 epoch 都会上报一次（折数 × 轮数），而不是固定 2 次。
         epoch_events = [
             event for event in events if event["phase"] == "rnn_epoch"]
-        self.assertEqual([event["epoch"] for event in epoch_events], [1, 2])
+        self.assertGreaterEqual(len(epoch_events), 2)
         self.assertTrue(all(event["battery"] == "target"
                             for event in epoch_events))
         self.assertTrue(all(event["seed"] == 7 for event in epoch_events))
         self.assertTrue(all(event["elapsed_seconds"] >= 0
+                            for event in epoch_events))
+        self.assertTrue(all(1 <= event["epoch"] <= event["total"]
                             for event in epoch_events))
 
     def test_worker_emits_real_stage_progress_events(self):

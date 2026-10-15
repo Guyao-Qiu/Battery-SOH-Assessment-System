@@ -1,5 +1,6 @@
 import re
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -63,17 +64,46 @@ class EngineeringHygieneTests(unittest.TestCase):
         text = workflow.read_text(encoding="utf-8")
         required_commands = (
             "ruff check .",
-            "bandit -r core models ui utils battery_soh_app.py --ini .bandit",
+            "bandit -r core models ui utils battery_soh_app.py theme_tokens.py --ini .bandit",
             "pip-audit -r requirements.lock",
             "python -m unittest discover -s tests -v",
             "coverage run --source=core,models,ui,utils -m unittest discover -s tests",
             "coverage report --fail-under=59",
             "--include=\"core/evaluate.py,core/result_semantics.py,core/run_snapshot.py,utils/config.py\"",
             "coverage report --fail-under=85",
+            # 改进方案 §7.2：两道守卫脚本必须进 CI
+            "python tools/check_undefined.py core models ui utils theme_tokens.py battery_soh_app.py",
+            "python tools/check_colors.py",
         )
         for command in required_commands:
             self.assertIn(command, text)
         self.assertIn("3.10", text)
+
+    def test_undefined_names_and_hardcoded_colors_are_gated(self):
+        """A1 / C1 的守卫脚本必须存在且能独立运行。"""
+        undefined = ROOT / "tools" / "check_undefined.py"
+        colors = ROOT / "tools" / "check_colors.py"
+        self.assertTrue(undefined.is_file(), "缺少 check_undefined.py")
+        self.assertTrue(colors.is_file(), "缺少 check_colors.py")
+
+        result = subprocess.run(
+            [sys.executable, "-X", "utf8", str(undefined),
+             "core", "models", "ui", "utils", "theme_tokens.py"],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        result = subprocess.run(
+            [sys.executable, "-X", "utf8", str(colors)],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_ruff_enforces_undefined_names_repo_wide(self):
+        """A1 修复后不应再为任何文件豁免 F821。"""
+        config = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('"F821"', config)
+        self.assertNotIn("per-file-ignores", config)
 
     def test_linux_ci_installs_pyqt_runtime_library(self):
         workflow = (

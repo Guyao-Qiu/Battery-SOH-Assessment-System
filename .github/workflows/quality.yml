@@ -29,11 +29,15 @@ jobs:
       - name: Install locked dependencies
         run: python -m pip install -r requirements.lock -r requirements-dev.lock
       - name: Compile
-        run: python -m compileall -q battery_soh_app.py core models ui utils
+        run: python -m compileall -q battery_soh_app.py theme_tokens.py core models ui utils
       - name: Lint
         run: ruff check .
+      - name: Guard - undefined names
+        run: python tools/check_undefined.py core models ui utils theme_tokens.py battery_soh_app.py
+      - name: Guard - no hardcoded colours
+        run: python tools/check_colors.py
       - name: Static security scan
-        run: bandit -r core models ui utils battery_soh_app.py --ini .bandit
+        run: bandit -r core models ui utils battery_soh_app.py theme_tokens.py --ini .bandit
       - name: Dependency audit
         run: pip-audit -r requirements.lock
       - name: Tests

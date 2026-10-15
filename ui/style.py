@@ -4,41 +4,36 @@
 - 暖宣纸基底 + 墨色层级 + 单一黛青主强调
 - 朱砂仅用于危险/失效，竹青与赭石用于语义状态
 - 统一细描边、清晰焦点、克制墨晕反馈
+
+颜色不再写在本文件里：唯一真相来源是工程根目录的 ``theme_tokens.py``
+（纯字典 + 纯函数，不 import 第三方库，因此启动闪屏可以在重库加载前就用它）。
+本模块只负责把这些 token 渲染成 QSS。
 """
 
 from pathlib import Path
 
+from theme_tokens import (
+    DEFAULT_THEME,
+    THEMES,
+    get_theme,
+    rgba,
+)
+from ui.fonts import (
+    DISPLAY_FONT_FAMILIES,
+    MONO_FONT_FAMILIES,
+    UI_FONT_FAMILIES,
+    font_fallbacks_css,
+)
+
+
 DESIGN_LANGUAGE = '宣纸水墨'
 
-# ── 调色板 ──────────────────────────────────────────────────
-COLORS = {
-    'paper':       '#F3EDE0',   # 宣纸
-    'ink':         '#202724',   # 浓墨
-    'cinnabar':    '#9E3D2F',   # 朱砂
-    'bg_deep':     '#E8E0D1',   # 窗口底纸
-    'bg_base':     '#F3EDE0',   # 主宣纸
-    'bg_surface':  '#FAF6EC',   # 提亮纸面
-    'bg_elevated': '#E1D8C8',   # 次级纸面
-    'bg_hover':    '#D6CDBC',   # 悬停墨洗
-    'border':      '#898D84',   # 淡墨描边
-    'border_soft': '#C5BBAA',   # 弱描边
-    'text':        '#202724',   # 主墨
-    'text_muted':  '#59635D',   # 次级墨（浅底 AA）
-    'text_dim':    '#777D77',   # 禁用墨
-    'primary':     '#315B5A',   # 单一主强调：黛青
-    'primary_d':   '#244743',   # 深黛
-    'primary_l':   '#52766E',   # 浅黛
-    'on_accent':   '#FFF9ED',   # 黛青表面上的文字
-    'spin_selection': '#76563A',  # 赭褐：数字滚轮选中态
-    'on_selection': '#FFF9ED',    # 赭褐表面上的暖白文字
-    'success':     '#4F6B4F',   # 竹青
-    'success_l':   '#3F6045',
-    'warning':     '#98652E',   # 赭石
-    'danger':      '#9E3D2F',   # 朱砂危险
-    'danger_d':    '#7F2F26',
-    'on_danger':   '#FFF9ED',
-    'shadow':      'rgba(32, 39, 36, 0.14)',
-}
+#: 兼容旧引用：``COLORS`` 是当前浅色主题的 token 别名。
+#: 新代码请直接用 ``build_qss(tokens)`` / ``get_theme(mode)``。
+COLORS = THEMES[DEFAULT_THEME]
+
+#: 当前生效的主题模式（由 :func:`apply_theme` 更新）
+_current_mode = DEFAULT_THEME
 
 COMBO_DOWN_ARROW_URL = (
     Path(__file__).resolve().parents[1] / 'assets' / 'icons' /
@@ -47,9 +42,13 @@ COMBO_DOWN_ARROW_URL = (
 
 
 # ── 字体族 ──────────────────────────────────────────────────
-FONT_FAMILY = '"Segoe UI", "Microsoft YaHei", "PingFang SC", "Helvetica Neue", sans-serif'
-FONT_DISPLAY = '"STZhongsong", "FangSong", "Microsoft YaHei", serif'
-FONT_MONO   = '"JetBrains Mono", "Cascadia Code", "Consolas", monospace'
+# 候选链写在 ui/fonts.py 里；这里把它渲染成 QSS 的 font-family 列表。
+# 之所以不再硬写死一个族名：PyQt6 的 offscreen 平台插件下 QFontDatabase
+# 可能是空的（见 ui/fonts.py 的模块说明），必须由 install_fonts() 显式
+# 注册系统字体后，这些族名才解析得到。
+FONT_FAMILY = font_fallbacks_css(UI_FONT_FAMILIES)
+FONT_DISPLAY = font_fallbacks_css(DISPLAY_FONT_FAMILIES)
+FONT_MONO = font_fallbacks_css(MONO_FONT_FAMILIES)
 
 
 def _font(size=10, weight='normal', mono=False):
@@ -61,8 +60,13 @@ def _display_font(size=10, weight='normal'):
     return f'font-family: {FONT_DISPLAY}; font-size: {size}pt; font-weight: {weight};'
 
 
-# ── 主题 QSS ────────────────────────────────────────────────
-GLOBAL_QSS = f"""
+def build_qss(COLORS):
+    """把一套主题 token 渲染成全局 QSS。
+
+    形参刻意命名为 ``COLORS``，这样函数体里原有的 ``COLORS['…']`` 引用
+    一个字都不用改；手写的半透明色统一走 :func:`theme_tokens.rgba`。
+    """
+    return f"""
 /* ── 全局 ───────────────────────────────────── */
 * {{
     {_font(10)}
@@ -89,6 +93,42 @@ QLabel[role="subtitle"] {{
     color: {COLORS['text_muted']};
     letter-spacing: 0.5px;
 }}
+
+/* ── 顶部条（右上顶角主题切换） ────────────────── */
+QFrame[role="topBar"] {{
+    background: {COLORS['bg_elevated']};
+    border: 1px solid {COLORS['border_soft']};
+    border-radius: 6px;
+}}
+QLabel[role="topBarTitle"] {{
+    {_font(11, 'bold')}
+    color: {COLORS['text']};
+    letter-spacing: 0.6px;
+}}
+QLabel[role="topBarSubtitle"] {{
+    {_font(9)}
+    color: {COLORS['text_dim']};
+    letter-spacing: 0.4px;
+}}
+QPushButton#themeToggle {{
+    {_font(9, 'bold')}
+    color: {COLORS['text']};
+    background: {COLORS['bg_surface']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 14px;
+    padding: 5px 14px;
+}}
+QPushButton#themeToggle:hover {{
+    background: {COLORS['bg_hover']};
+    border-color: {COLORS['primary']};
+}}
+QPushButton#themeToggle:pressed {{
+    background: {COLORS['primary']};
+    color: {COLORS['on_accent']};
+}}
+QPushButton#themeToggle:focus {{
+    border: 2px solid {COLORS['primary']};
+}}
 QLabel[role="metric"] {{
     {_font(20, 'bold')}
     color: {COLORS['primary']};
@@ -99,7 +139,7 @@ QLabel[role="badge"] {{
     padding: 2px 8px;
     border: 1px solid {COLORS['primary_d']};
     border-radius: 8px;
-    background: rgba(49, 91, 90, 0.10);
+    background: {rgba(COLORS['primary'], 0.10)};
 }}
 QLabel[role="sectionTitle"] {{
     {_font(11, 'bold')}
@@ -128,7 +168,7 @@ QLabel[role="emptyState"] {{
 }}
 
 QFrame[role="dataSummary"] {{
-    background: rgba(49, 91, 90, 0.06);
+    background: {rgba(COLORS['primary'], 0.06)};
     border: 1px solid {COLORS['border_soft']};
     border-radius: 6px;
 }}
@@ -179,8 +219,37 @@ QFrame[role="runStatusStrip"] QLabel[role="runStatus"] {{
     padding: 2px 0;
 }}
 QLabel[role="runContext"] {{
-    {_font(8)}
-    color: {COLORS['text_dim']};
+    {_font(9)}
+    color: {COLORS['text_muted']};
+}}
+
+QFrame[role="resultBatchBar"] {{
+    background: {COLORS['bg_elevated']};
+    border: 1px solid {COLORS['border_soft']};
+    border-radius: 4px;
+}}
+QLabel[role="resultBatchLabel"] {{
+    {_font(9, '600')}
+    color: {COLORS['text_muted']};
+}}
+
+QFrame[role="resultSummary"] {{
+    background: {rgba(COLORS['primary'], 0.06)};
+    border: 1px solid {COLORS['border_soft']};
+    border-left: 3px solid {COLORS['primary']};
+    border-radius: 5px;
+}}
+QLabel[role="resultSummaryTitle"] {{
+    {_display_font(11, 'bold')}
+    color: {COLORS['primary_d']};
+}}
+QLabel[role="resultSummaryMetric"] {{
+    {_font(10, 'bold', mono=True)}
+    color: {COLORS['primary_d']};
+}}
+QLabel[role="resultSummaryMeta"] {{
+    {_font(9)}
+    color: {COLORS['text_muted']};
 }}
 
 QFrame[role="resultState"] {{
@@ -194,7 +263,7 @@ QFrame[role="resultStateBattery"] {{
     border-radius: 5px;
 }}
 QFrame[role="resultStateBatteryFill"] {{
-    background: rgba(49, 91, 90, 0.18);
+    background: {rgba(COLORS['primary'], 0.18)};
     border: 1px solid {COLORS['primary_l']};
     border-radius: 2px;
 }}
@@ -213,9 +282,9 @@ QLabel[role="resultStateDetail"] {{
     color: {COLORS['text_muted']};
 }}
 QLabel[role="resultStateGuide"] {{
-    {_font(8, '600')}
+    {_font(9, '600')}
     color: {COLORS['warning']};
-    background: rgba(152, 101, 46, 0.07);
+    background: rgba(122, 78, 34, 0.07);
     border: 1px solid {COLORS['border_soft']};
     border-radius: 8px;
     padding: 4px 9px;
@@ -225,7 +294,7 @@ QLabel[role="resultStateGuide"] {{
 QGroupBox {{
     {_font(10, 'bold')}
     color: {COLORS['text']};
-    border: 1px solid {COLORS['border']};
+    border: 1px solid {COLORS['border_soft']};
     border-radius: 8px;
     margin-top: 14px;
     padding: 14px 10px 10px 10px;
@@ -237,12 +306,13 @@ QGroupBox::title {{
     padding: 2px 12px;
     left: 12px;
     color: {COLORS['text']};
-    letter-spacing: 1px;
     background: transparent;
 }}
 QGroupBox[role="resultCard"] {{
-    background: {COLORS['bg_base']};
-    border-color: {COLORS['border_soft']};
+    background: transparent;
+    border: none;
+    border-top: 1px solid {COLORS['border_soft']};
+    border-radius: 0;
 }}
 QLabel[role="resultStatus"] {{
     {_font(10, 'bold')}
@@ -304,7 +374,7 @@ QPushButton[role="success"] {{
     {_font(10, 'bold')}
 }}
 QPushButton[role="success"]:hover {{
-    background: #3C533C;
+    background: {COLORS['success_d']};
 }}
 
 QPushButton[role="danger"] {{
@@ -323,7 +393,7 @@ QPushButton[role="ghost"] {{
     color: {COLORS['text_muted']};
 }}
 QPushButton[role="ghost"]:hover {{
-    background: rgba(49, 91, 90, 0.08);
+    background: {rgba(COLORS['primary'], 0.08)};
     border-color: {COLORS['primary']};
     color: {COLORS['primary_d']};
 }}
@@ -342,7 +412,7 @@ QPushButton[role="model"] {{
 QPushButton[role="model"]:hover {{
     color: {COLORS['text']};
     border-color: {COLORS['primary']};
-    background: rgba(49, 91, 90, 0.08);
+    background: {rgba(COLORS['primary'], 0.08)};
 }}
 QPushButton[role="model"][active="true"] {{
     color: {COLORS['on_accent']};
@@ -363,7 +433,7 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
 }}
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
     border-color: {COLORS['primary']};
-    background: #FFFDF7;
+    background: {COLORS['bg_focus']};
 }}
 QSpinBox, QDoubleSpinBox {{
     selection-background-color: {COLORS['spin_selection']};
@@ -391,6 +461,26 @@ QComboBox::down-arrow {{
     width: 12px;
     height: 8px;
     margin-right: 6px;
+}}
+
+QMenu {{
+    {_font(10)}
+    color: {COLORS['text']};
+    background: {COLORS['bg_surface']};
+    border: 1px solid {COLORS['border']};
+    padding: 4px;
+}}
+QMenu::item {{
+    padding: 6px 24px 6px 10px;
+    border-radius: 3px;
+}}
+QMenu::item:selected {{
+    color: {COLORS['on_accent']};
+    background: {COLORS['primary_d']};
+}}
+QMenu::item:disabled {{
+    color: {COLORS['text_dim']};
+    background: transparent;
 }}
 
 /* ── 文件夹选择对话框 ─────────────────────────── */
@@ -487,7 +577,7 @@ QListWidget::item {{
     margin: 1px 0;
 }}
 QListWidget::item:hover {{
-    background: rgba(49, 91, 90, 0.08);
+    background: {rgba(COLORS['primary'], 0.08)};
     color: {COLORS['primary_d']};
 }}
 QListWidget::item:selected {{
@@ -504,6 +594,61 @@ QTextEdit, QPlainTextEdit {{
     border-radius: 6px;
     padding: 6px;
     selection-background-color: {COLORS['primary_d']};
+}}
+QTextEdit:focus, QPlainTextEdit:focus {{
+    border: 2px solid {COLORS['primary']};
+}}
+
+/* ── 工作区页签 ───────────────────────────────── */
+/* QTabWidget / QTabBar 都要显式给背景：只写 ::tab 的话，最后一个页签**右侧
+   的空白区**由 QTabBar 自己绘制，会露出默认调色板（深色主题下看不出来，
+   浅色主题下就是一块突兀的黑条）。 */
+QTabWidget {{
+    background: transparent;
+}}
+QTabWidget::pane {{
+    background: {COLORS['bg_base']};
+    border: 1px solid {COLORS['border_soft']};
+    border-top: none;
+}}
+QTabWidget::tab-bar {{
+    alignment: left;
+    background: transparent;
+}}
+QTabBar {{
+    background: transparent;
+    /* 关掉 QTabBar 自己画的基线，否则会在页签下方留一条深色横线 */
+    qproperty-drawBase: 0;
+}}
+QTabBar::tab {{
+    {_font(9, '600')}
+    color: {COLORS['text_muted']};
+    background: {COLORS['bg_elevated']};
+    border: 1px solid {COLORS['border_soft']};
+    border-bottom: 1px solid {COLORS['border']};
+    padding: 7px 14px;
+    min-width: 78px;
+}}
+QTabBar::tab:selected {{
+    color: {COLORS['primary_d']};
+    background: {COLORS['bg_base']};
+    border-bottom-color: {COLORS['bg_base']};
+}}
+QTabBar::tab:hover:!selected {{
+    color: {COLORS['primary_d']};
+    background: {COLORS['bg_hover']};
+}}
+QTabBar:focus {{
+    border: 2px solid {COLORS['primary']};
+}}
+/* 页签过多时出现的滚动按钮，同样不能露出默认配色 */
+QTabBar QToolButton {{
+    background: {COLORS['bg_elevated']};
+    border: 1px solid {COLORS['border_soft']};
+    color: {COLORS['text']};
+}}
+QTabBar QToolButton:hover {{
+    background: {COLORS['bg_hover']};
 }}
 
 /* ── 进度条 ───────────────────────────────────── */
@@ -540,6 +685,28 @@ QSplitter::handle:horizontal {{ width: 2px; }}
 QSplitter::handle:vertical   {{ height: 2px; }}
 QSplitter::handle:hover {{
     background: {COLORS['primary']};
+}}
+QSplitter#leftPanelSplitter::handle:vertical {{
+    background: qlineargradient(
+        x1: 0, y1: 0, x2: 0, y2: 1,
+        stop: 0 transparent,
+        stop: 0.39 transparent,
+        stop: 0.40 {COLORS['border']},
+        stop: 0.60 {COLORS['border']},
+        stop: 0.61 transparent,
+        stop: 1 transparent
+    );
+}}
+QSplitter#leftPanelSplitter::handle:vertical:hover {{
+    background: qlineargradient(
+        x1: 0, y1: 0, x2: 0, y2: 1,
+        stop: 0 transparent,
+        stop: 0.39 transparent,
+        stop: 0.40 {COLORS['primary']},
+        stop: 0.60 {COLORS['primary']},
+        stop: 0.61 transparent,
+        stop: 1 transparent
+    );
 }}
 
 /* ── 滚动区 ───────────────────────────────────── */
@@ -585,11 +752,11 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
 
 /* ── 工具栏 ───────────────────────────────────── */
 QToolBar {{
-    background: {COLORS['bg_surface']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 6px;
-    padding: 4px;
-    spacing: 4px;
+    background: {COLORS['bg_base']};
+    border: 1px solid {COLORS['border_soft']};
+    border-radius: 4px;
+    padding: 3px;
+    spacing: 2px;
 }}
 QToolButton {{
     {_font(9)}
@@ -601,7 +768,7 @@ QToolButton {{
     margin: 1px;
 }}
 QToolButton:hover {{
-    background: rgba(49, 91, 90, 0.10);
+    background: {rgba(COLORS['primary'], 0.10)};
     border-color: {COLORS['primary']};
     color: {COLORS['primary_d']};
 }}
@@ -692,9 +859,106 @@ QPushButton[role="hero"]:disabled {{
     border: 1px solid {COLORS['border_soft']};
     letter-spacing: 2px;
 }}
+
+/* 角色色不得覆盖禁用态，避免停止、保存等按钮看起来仍可操作。 */
+QPushButton[role="primary"]:disabled,
+QPushButton[role="success"]:disabled,
+QPushButton[role="danger"]:disabled,
+QPushButton[role="ghost"]:disabled,
+QPushButton[role="model"]:disabled,
+QPushButton[role="model"][active="true"]:disabled {{
+    color: {COLORS['text_muted']};
+    background: {COLORS['bg_surface']};
+    border: 1px solid {COLORS['border_soft']};
+}}
+
+/* ── 动态属性样式（取代内联 setStyleSheet，见 C1） ── */
+QLabel[role="muted"] {{
+    {_font(9)}
+    color: {COLORS['text_muted']};
+    background: transparent;
+}}
+QLabel[role="mono"] {{
+    {_font(10, 'bold', mono=True)}
+    color: {COLORS['primary_d']};
+    background: transparent;
+}}
+QLabel[role="warning"] {{
+    {_font(9, '600')}
+    color: {COLORS['warning']};
+    background: transparent;
+}}
+QLabel[role="dangerText"] {{
+    {_font(9, '600')}
+    color: {COLORS['danger']};
+    background: transparent;
+}}
+QLabel[role="successText"] {{
+    {_font(9, '600')}
+    color: {COLORS['success_d']};
+    background: transparent;
+}}
+/* 状态色必须带非颜色冗余（图标 / 文字前缀），见 U6 */
+QTableView {{
+    {_font(9)}
+    color: {COLORS['text']};
+    background: {COLORS['bg_surface']};
+    alternate-background-color: {COLORS['bg_base']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 4px;
+    gridline-color: {COLORS['border_soft']};
+    selection-background-color: {COLORS['primary']};
+    selection-color: {COLORS['on_accent']};
+}}
+QTableView::item {{
+    /* U1：结果面板较窄，内边距压到最小以便更多列可见 */
+    padding: 2px 5px;
+}}
+QTableView QHeaderView::section {{
+    {_font(9, 'bold')}
+    color: {COLORS['text']};
+    background: {COLORS['bg_elevated']};
+    border: none;
+    border-right: 1px solid {COLORS['border_soft']};
+    border-bottom: 1px solid {COLORS['border']};
+    padding: 5px 6px;
+}}
+QTableView QTableCornerButton::section {{
+    background: {COLORS['bg_elevated']};
+    border: none;
+}}
 """
 
 
-def apply_theme(app):
-    """应用全局主题样式到 QApplication"""
-    app.setStyleSheet(GLOBAL_QSS)
+def theme_tokens(mode=None):
+    """取某套主题 token（默认当前生效的主题）。"""
+    return get_theme(mode or _current_mode)
+
+
+def apply_theme(app, mode=None):
+    """应用全局主题样式到 QApplication；``mode`` 为 ``'light'`` 或 ``'dark'``。"""
+    global _current_mode, COLORS
+    if mode is not None:
+        _current_mode = str(mode).strip().lower()
+    tokens = get_theme(_current_mode)
+    COLORS = tokens
+    app.setStyleSheet(build_qss(tokens))
+    # 让 Qt 原生控件（对话框、菜单、滚动条）也跟随明暗
+    try:
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QApplication
+        style_hints = QApplication.styleHints()
+        scheme = (Qt.ColorScheme.Dark if _current_mode == 'dark'
+                  else Qt.ColorScheme.Light)
+        style_hints.setColorScheme(scheme)
+    except (ImportError, AttributeError):
+        pass
+    return tokens
+
+
+def current_theme_mode():
+    return _current_mode
+
+
+#: 兼容旧引用：模块级 ``GLOBAL_QSS`` 现在是默认主题渲染出的静态样式表。
+GLOBAL_QSS = build_qss(COLORS)

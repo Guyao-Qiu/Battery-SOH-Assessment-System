@@ -4,16 +4,17 @@ line-length = 120
 exclude = ["dataset", "outputs", ".idea"]
 
 [tool.ruff.lint]
-select = ["E9", "F63", "F7", "F82"]
-
-[tool.ruff.lint.per-file-ignores]
-"ui/tcp_server.py" = ["F821"]
+# F821 = 未定义的名字。A1 修复后全项目已无此问题，且 tools/check_undefined.py
+# 会把同一类问题当 CI 门禁，所以这里不再为任何文件豁免。
+# F401/F841：本项目同时维护「多文件工程 + 单文件打包」两种形态，
+# core/model_factory.py 等模块的导入同时承担**测试替换点**的角色
+# （用 `X as X` 显式再导出），因此这两项按需在本地开启，不放进默认门禁。
+select = ["E9", "F63", "F7", "F82", "F821"]
 
 [tool.coverage.run]
 branch = true
 omit = [
     "*/tests/*",
-    "*/ui/tcp_server.py",
     "*/ui/tcp_display.py",
 ]
 

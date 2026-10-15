@@ -2,11 +2,12 @@ from math import sqrt
 import numpy as np
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
+from core.result_semantics import first_failure_index
+
 
 def _first_failure_index(values, threshold):
-    values = np.asarray(values, dtype=np.float64).reshape(-1)
-    positions = np.flatnonzero(values < threshold)
-    return int(positions[0]) if len(positions) else None
+    """失效判定委托给 ``core.result_semantics``，全工程只有一处实现。"""
+    return first_failure_index(values, threshold)
 
 
 def relative_error_details(y_test, y_predict, threshold):
@@ -108,6 +109,9 @@ def confidence_interval(values, confidence=0.95):
     values: 多次实验的指标值列表
     confidence: 置信水平，默认 0.95
     返回 (mean, lower, upper, std)
+
+    注意：这是**同一留一折内、不同随机种子**之间的区间，它不代表泛化不确定性。
+    跨电池的泛化不确定性请用 :func:`bootstrap_ci`。
     """
     values = np.asarray(values, dtype=np.float64)
     n = len(values)
@@ -123,3 +127,26 @@ def confidence_interval(values, confidence=0.95):
     else:
         margin = 0.0
     return mean, mean - margin, mean + margin, std
+
+
+def bootstrap_ci(values, n_boot=2000, level=0.95, seed=0):
+    """对「每块电池一个数」的指标做 bootstrap，返回 (均值, 下界, 上界)。
+
+    ``n = 电池数`` 才是泛化不确定性的来源（而不是随机种子）。电池只有 4–5 块
+    时区间会很宽——这是诚实的，也正是读者最想看到的。
+    """
+    array = np.asarray(
+        [value for value in values
+         if value is not None and np.isfinite(value)],
+        dtype=np.float64)
+    if len(array) == 0:
+        return float('nan'), float('nan'), float('nan')
+    if len(array) == 1:
+        value = float(array[0])
+        return value, value, value
+    rng = np.random.default_rng(seed)
+    means = rng.choice(
+        array, size=(int(n_boot), len(array)), replace=True).mean(axis=1)
+    lo, hi = np.percentile(
+        means, [(1 - level) / 2 * 100, (1 + level) / 2 * 100])
+    return float(array.mean()), float(lo), float(hi)

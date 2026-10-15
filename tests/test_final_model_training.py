@@ -58,7 +58,7 @@ class FinalAllBatteryTrainingTests(unittest.TestCase):
                 return np.full(len(x), self.mean_, dtype=np.float32)
 
         with patch(
-                "sklearn.ensemble.RandomForestRegressor", RecordingRF):
+                "core.model_factory.RandomForestRegressor", RecordingRF):
             _, metadata = train_model_on_all_data(
                 _config("RF"), _data(), ["cell_a", "cell_b", "cell_c"])
 
@@ -80,6 +80,9 @@ class FinalAllBatteryTrainingTests(unittest.TestCase):
                 fit_calls.append({"size": len(x), "kwargs": kwargs})
                 return self
 
+            def predict(self, x):
+                return x[:, -1]
+
             def get_booster(self):
                 return Booster()
 
@@ -88,8 +91,9 @@ class FinalAllBatteryTrainingTests(unittest.TestCase):
                 _config("XGBoost"), _data(),
                 ["cell_a", "cell_b", "cell_c"])
 
+        # A2 后最终模型也用全量窗口拟合（不再留一块电池做验证）。
+        # A7 后 XGBoost 一次训练完成，不再有「调参 + 重训」两次 fit。
         self.assertEqual(fit_calls[-1]["size"], 12)
-        self.assertNotIn("eval_set", fit_calls[-1]["kwargs"])
         self._assert_complete_final_metadata(metadata)
 
     def test_recurrent_final_fit_uses_every_valid_battery(self):

@@ -41,3 +41,8 @@ desktop.ini
 
 # Local environment probes
 test.py
+
+# Local AI tooling (session-local, not part of the project)
+.claude/
+.workbuddy-ai/
+.codex_tmp_fund_analysis/

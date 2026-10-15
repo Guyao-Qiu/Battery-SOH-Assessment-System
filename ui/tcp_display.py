@@ -1,10 +1,22 @@
+"""TCP 实时数据接入独立显示窗口。
+
+A10 后服务端发出的数据形状变了：
+
+- ``soh_update_signal``  → ``{pct: {'cycle_offset': int|None, 'reached': bool}}``
+- ``rul_update_signal``  → ``{'rul': int|None, 'threshold': float,
+  'rated_capacity': float, 'unit': 'cycles', 'definition': str}``
+
+旧实现把 RUL 当成「SOH 从 pct% 掉到 80% 需要多少个循环」，那**不是**从现在起的
+剩余寿命；这里按新语义展示。
+"""
+
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QSplitter,
-    QWidget, QSizePolicy,
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QWidget,
+    QSizePolicy,
 )
 from ui.chart_show import MplCanvas
+from ui.style import theme_tokens
 from utils.icon_generator import get_dialog_icon
 
 
@@ -22,26 +34,31 @@ class TcpDisplayWindow(QDialog):
         self._predicted = []
         self._current_capacity = None
         self._current_soh = None
+        self._tokens = theme_tokens()
 
         self._build_ui()
 
     def _build_ui(self):
+        tokens = self._tokens
         layout = QVBoxLayout(self)
 
         # ── 状态栏 ──
         self.status_label = QLabel('等待数据...')
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setProperty('role', 'resultSummaryTitle')
         self.status_label.setStyleSheet(
-            'font-size: 14px; font-weight: bold; padding: 10px;'
-            ' color: #315B5A; background: #FAF6EC;'
-            ' border: 1px solid #898D84; border-radius: 4px;'
+            f'font-size: 14px; font-weight: bold; padding: 10px;'
+            f' color: {tokens["primary_d"]};'
+            f' background: {tokens["bg_surface"]};'
+            f' border: 1px solid {tokens["border"]}; border-radius: 4px;'
             ' letter-spacing: 1px;'
         )
         layout.addWidget(self.status_label)
 
         # ── 图表 ──
         self.canvas = MplCanvas()
-        self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.canvas.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self.canvas, 2)
 
         # ── 底部：SOH 表 / RUL 表 ──
@@ -72,56 +89,93 @@ class TcpDisplayWindow(QDialog):
         bottom_layout.addWidget(rul_group, 1)
         layout.addWidget(bottom, 1)
 
+    # ── 主题 ─────────────────────────────────────────────────
+    def apply_theme_tokens(self, tokens):
+        self._tokens = tokens
+        if self._measured or self._predicted:
+            self.canvas.apply_theme_tokens(tokens)
+            self.canvas.plot_tcp_predictions(
+                self._measured, self._predicted,
+                self._rated_capacity, self._threshold_ratio)
+
+    # ── 更新 ─────────────────────────────────────────────────
     def update_status(self, capacity, soh):
         self._current_capacity = capacity
         self._current_soh = soh
         self.status_label.setText(
-            f'当前容量：{capacity:.6f} Ah  |  SOH：{soh:.1f}%  |  '
+            f'当前容量：{capacity:.4f} Ah  |  SOH：{soh:.1f}%  |  '
             f'已接收 {len(self._measured)} 个循环')
 
     def update_chart(self, measured, predicted, rated_capacity, threshold_ratio):
         self._measured = list(measured)
         self._predicted = list(predicted)
+        self._rated_capacity = rated_capacity
+        self._threshold_ratio = threshold_ratio
         self.canvas.plot_tcp_predictions(
             measured, predicted, rated_capacity, threshold_ratio)
 
     def update_soh(self, soh_info):
+        tokens = self._tokens
         rows = [
             '<table border="0" cellpadding="6" cellspacing="0" width="100%"',
-            '       style="border-collapse:collapse; color:#202724; font-size:10pt;">',
-            '<tr style="background:#315B5A; color:#FFF9ED; font-weight:bold;">',
-            '<th>SOH (%)</th><th>循环次数</th><th>容量 (Ah)</th></tr>'
+            '       style="border-collapse:collapse;'
+            f' color:{tokens["text"]}; font-size:10pt;">',
+            f'<tr style="background:{tokens["primary"]};'
+            f' color:{tokens["on_accent"]}; font-weight:bold;">',
+            '<th>SOH (%)</th><th>距最新循环</th><th>状态</th></tr>',
         ]
-        for pct in [100, 95, 90, 85, 80]:
-            info = soh_info.get(pct, {})
-            cycle = info.get('cycle')
-            cap = info.get('capacity')
-            cycle_str = str(cycle) if cycle is not None else '-'
-            cap_str = f'{cap:.4f}' if isinstance(cap, (int, float)) else '-'
+        for pct in (100, 95, 90, 85, 80):
+            info = soh_info.get(pct, {}) or {}
+            offset = info.get('cycle_offset')
+            reached = info.get('reached')
+            offset_str = '—' if offset is None else f'{offset:+d}'
+            if offset is None:
+                state = '预测期内未到达'
+            elif reached:
+                state = '✓ 已到达'
+            else:
+                state = '预测中'
             rows.append(
-                f'<tr style="background:#F3EDE0; border-bottom:1px solid #C5BBAA;">'
-                f'<td style="color:#315B5A; font-weight:bold;">{pct}%</td>'
-                f'<td>{cycle_str}</td><td>{cap_str}</td></tr>'
+                f'<tr style="background:{tokens["bg_base"]};'
+                f' border-bottom:1px solid {tokens["border_soft"]};">'
+                f'<td style="color:{tokens["primary"]}; font-weight:bold;">'
+                f'{pct}%</td>'
+                f'<td>{offset_str}</td><td>{state}</td></tr>'
             )
         rows.append('</table>')
         self.soh_label.setText(''.join(rows))
 
     def update_rul(self, rul_info):
+        tokens = self._tokens
+        rul = rul_info.get('rul')
+        threshold = rul_info.get('threshold')
+        rated = rul_info.get('rated_capacity')
+        if rul is None:
+            value_text = '预测期内不会越过失效阈值'
+        elif rul == 0:
+            value_text = '0 个循环（当前已低于失效阈值）'
+        else:
+            value_text = f'{int(rul)} 个循环'
+        threshold_text = (
+            f'{threshold:.4f} Ah'
+            f'（额定 {rated:.4f} Ah 的 '
+            f'{(threshold / rated * 100) if rated else 0:.0f}%）'
+            if threshold is not None and rated else '—')
         rows = [
             '<table border="0" cellpadding="6" cellspacing="0" width="100%"',
-            '       style="border-collapse:collapse; color:#202724; font-size:10pt;">',
-            '<tr style="background:#4F6B4F; color:#FFF9ED; font-weight:bold;">',
-            '<th>当前 SOH (%)</th><th>距 SOH=80% 剩余循环</th></tr>'
+            '       style="border-collapse:collapse;'
+            f' color:{tokens["text"]}; font-size:10pt;">',
+            f'<tr style="background:{tokens["success"]};'
+            f' color:{tokens["on_accent"]}; font-weight:bold;">',
+            '<th>项目</th><th>数值</th></tr>',
+            f'<tr style="background:{tokens["bg_base"]};">'
+            f'<td>剩余寿命 (RUL)</td><td>{value_text}</td></tr>',
+            f'<tr style="background:{tokens["bg_base"]};">'
+            f'<td>失效阈值</td><td>{threshold_text}</td></tr>',
+            '</table>',
+            f'<p style="color:{tokens["text_muted"]}; font-size:9pt;">'
+            f'{rul_info.get("definition", "")}</p>',
         ]
-        for pct in [85, 84, 83, 82, 81]:
-            remaining = rul_info.get(pct)
-            r_str = str(remaining) if remaining is not None else '-'
-            rows.append(
-                f'<tr style="background:#F3EDE0; border-bottom:1px solid #C5BBAA;">'
-                f'<td style="color:#3F6045; font-weight:bold;">{pct}%</td>'
-                f'<td>{r_str}</td></tr>'
-            )
-        rows.append('</table>')
         self.rul_label.setText(''.join(rows))
 
     def closeEvent(self, event):

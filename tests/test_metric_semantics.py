@@ -109,6 +109,21 @@ class FailureCycleSemanticsTests(unittest.TestCase):
         self.assertEqual(result["predicted_failure_cycle"], 30)
         self.assertEqual(result["predicted_failure_status"], "failed")
 
+    def test_recursive_prediction_is_aligned_after_observed_window(self):
+        analyze = result_semantics_module.analyze_failure_cycles
+
+        result = analyze(
+            cycle_ids=[1, 2, 3, 4],
+            measured=[0.79, 0.78, 0.77, 0.76],
+            predicted=[0.85, 0.75],
+            threshold=0.8,
+            prediction_start=2,
+        )
+
+        self.assertEqual(result["measured_failure_cycle"], 1)
+        self.assertEqual(result["predicted_failure_cycle"], 4)
+        self.assertEqual(result["predicted_failure_position"], 3)
+
 
 class MetricPresentationTests(unittest.TestCase):
     @classmethod
@@ -160,12 +175,12 @@ class MetricPresentationTests(unittest.TestCase):
         try:
             window.metric_combo.setCurrentText("全部")
             window.update_result_table([detail], elapsed=1.0)
-            texts = [label.text() for label in
-                     window.result_container.findChildren(QLabel)]
-            self.assertTrue(any(
-                "同一留一折" in text and "随机种子" in text
-                for text in texts))
-            self.assertIn("N/A（截尾）", texts)
+            # U1 后置信区间口径写在结果表下方的说明里（不再有卡片内的行）
+            self.assertIn("同一留一折", window.result_notes.text())
+            self.assertIn("随机种子", window.result_notes.text())
+            # 不可用指标仍要显示为 N/A（截尾）
+            self.assertEqual(
+                main_window_module.format_metric_value(None), "N/A（截尾）")
         finally:
             window.deleteLater()
             self.app.processEvents()

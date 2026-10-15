@@ -45,6 +45,8 @@ def train_recurrent_epoch(model, loader, optimizer, criterion, device,
         loss = criterion(output, targets.reshape(-1, 1))
         optimizer.zero_grad()
         loss.backward()
+        # RNN 容易梯度爆炸，加梯度裁剪（改进方案 A8）
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         count = len(features)
         weighted_loss += float(loss.item()) * count

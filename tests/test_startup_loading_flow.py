@@ -32,9 +32,11 @@ class StartupSplashProgressTests(unittest.TestCase):
             splash.set_progress(42, "正在加载计算组件…")
 
             self.assertEqual(splash._progress.value(), 42)
-            self.assertTrue(splash._progress.isTextVisible())
-            self.assertEqual(splash._progress.format(), "%p%")
             self.assertEqual(splash._status_label.text(), "正在加载计算组件…")
+            # U7②：百分比文字移到进度条**外**（条内文字压在填充块上
+            # 只有 2.01:1，读不清），因此条内文字关闭、条外标签显示。
+            self.assertFalse(splash._progress.isTextVisible())
+            self.assertEqual(splash._percent_label.text(), "42%")
         finally:
             splash._programmatic_close = True
             splash.close()
@@ -100,8 +102,20 @@ class EvaluationStartupFlowTests(unittest.TestCase):
         window = MainWindow()
         try:
             central_layout = window.centralWidget().layout()
-            self.assertEqual(central_layout.count(), 1)
-            self.assertIsInstance(central_layout.itemAt(0).widget(), QSplitter)
+            # 顶部条（应用名 + 右上角主题切换）是唯一额外的一行；
+            # 工作区本身必须直接是分栏，而不是落地页 / 向导。
+            widgets = [
+                central_layout.itemAt(index).widget()
+                for index in range(central_layout.count())
+            ]
+            splitters = [w for w in widgets if isinstance(w, QSplitter)]
+            self.assertEqual(len(splitters), 1)
+            self.assertIs(splitters[0], window.main_splitter)
+            self.assertIs(widgets[-1], window.main_splitter)
+            self.assertEqual(window.main_splitter.count(), 3)
+            # 新增的顶部条承载右上角主题按钮（U8）
+            self.assertTrue(hasattr(window, 'theme_btn'))
+            self.assertIsNotNone(window.theme_btn.parent())
             self.assertFalse(hasattr(window, "workspace_header"))
             roles = {
                 label.property("role") for label in window.findChildren(QLabel)

@@ -1,5 +1,6 @@
 import numpy as np
 from dataclasses import dataclass
+from numpy.lib.stride_tricks import sliding_window_view
 
 
 @dataclass(frozen=True)
@@ -20,17 +21,35 @@ class LeaveOneOutSplit:
 
 @dataclass(frozen=True)
 class OutlierFilterResult:
-    """Auditable result of capacity cleaning."""
+    """Auditable result of capacity cleaning.
+
+    ``mask`` / ``indices`` / ``removed_indices`` 反映**实际**处理结果；
+    ``marked_indices`` 始终是「被判定为可疑」的原始下标，无论是否真的删除
+    （A12：默认只标记不删除，因为容量再生是真实物理而不是噪声）。
+    """
 
     indices: np.ndarray
     mask: np.ndarray
     removed_indices: np.ndarray
     protected_indices: np.ndarray
     reasons: dict
+    marked_indices: np.ndarray = None
 
     @property
     def removed_count(self):
         return int(len(self.removed_indices))
+
+    @property
+    def marked_count(self):
+        marked = self.marked_indices
+        return 0 if marked is None else int(len(marked))
+
+    @property
+    def mode(self):
+        """``'delete'``（真的删了）/ ``'mark'``（只标记）/ ``'off'``。"""
+        if self.marked_count and not self.removed_count:
+            return 'mark'
+        return 'delete' if self.removed_count else 'off'
 
 
 class CapacityScaler:
@@ -121,12 +140,34 @@ class CapacityScaler:
         return scaler
 
 
+#: 离群点处理模式（A12）
+#:   ``'mark'``  —— 只标记可疑点，**保留数据**（默认）。窗口均值对快速下降段和
+#:                 NASA 的容量再生（真实物理，不是噪声）都会滞后，直接删会误伤。
+#:   ``'delete'``—— 真的丢弃（旧行为，对含趋势序列容易误判）。
+#:   ``'off'``   —— 完全不检测。
+OUTLIER_MODES = ('off', 'mark', 'delete')
+
+
 def filter_capacity_outliers(array, bins=40, enabled=True,
-                             protect_knees=True):
-    """Filter local 2-sigma outliers while preserving stable and knee regions."""
+                             protect_knees=True, mode=None):
+    """Causally filter local 2-sigma outliers without consulting future cycles.
+
+    判定规则（只读历史窗口，不看未来）不变；``mode`` 决定**如何处理**判定结果
+    （A12）：``'mark'``（默认）只标记并保留数据，``'delete'`` 才真的丢弃，
+    ``'off'`` 不检测。``enabled=False`` 等价于 ``mode='off'``；
+    显式给了 ``mode`` 时以 ``mode`` 为准。
+    """
     values = np.asarray(array, dtype=np.float64).reshape(-1)
     if bins <= 0:
         raise ValueError('异常值窗口大小必须大于 0')
+    if mode is None:
+        mode = 'off' if not enabled else 'delete'
+    if mode not in OUTLIER_MODES:
+        raise ValueError(
+            f'不支持的离群点模式: {mode}（可选 {OUTLIER_MODES}）')
+    detect = mode in ('mark', 'delete')
+    delete = mode == 'delete'
+
     finite = np.isfinite(values)
     mask = finite.copy()
     reasons = {
@@ -134,53 +175,46 @@ def filter_capacity_outliers(array, bins=40, enabled=True,
         for index in np.flatnonzero(~finite)
     }
     protected = set()
+    marked = set(int(index) for index in np.flatnonzero(~finite))
 
-    if enabled:
-        for start in range(0, len(values), bins):
-            end = min(start + bins, len(values))
-            local = values[start:end]
-            local_finite = np.isfinite(local)
-            finite_values = local[local_finite]
-            if len(finite_values) < 3:
+    if detect:
+        for index, value in enumerate(values):
+            if not finite[index]:
                 continue
-            sigma = float(np.std(finite_values))
-            mean = float(np.mean(finite_values))
+            start = max(0, index - bins)
+            history_indices = [
+                item for item in range(start, index)
+                if finite[item] and (mask[item] or not delete)
+            ]
+            if len(history_indices) < 5:
+                continue
+            history = values[history_indices]
+            mean = float(np.mean(history))
+            sigma = float(np.std(history))
             tolerance = max(1e-12, abs(mean) * 1e-12)
-            if sigma <= tolerance:
+            scale = max(sigma, abs(mean) * 0.005, tolerance)
+            lower = mean - 2 * scale
+            upper = mean + 2 * scale
+            if lower - tolerance <= value <= upper + tolerance:
                 continue
-            lower = mean - 2 * sigma
-            upper = mean + 2 * sigma
-            in_range = ((local >= lower - tolerance) &
-                        (local <= upper + tolerance) & local_finite)
-            for local_index in np.flatnonzero(local_finite & ~in_range):
-                index = start + int(local_index)
-                mask[index] = False
-                reasons[index] = (
-                    f'超出局部均值±2σ范围 [{lower:.6g}, {upper:.6g}]')
 
-            if protect_knees:
-                candidates = [
-                    index for index in range(start, end)
-                    if finite[index] and not mask[index]]
-                for index in candidates:
-                    if index == start or index + 2 >= end:
-                        continue
-                    previous = values[index - 1]
-                    future = values[index:min(index + 3, end)]
-                    drop_threshold = max(abs(previous) * 0.02, tolerance)
-                    persistent_drop = (
-                        previous - values[index] >= drop_threshold and
-                        len(future) >= 3 and
-                        np.all(np.diff(future) <= tolerance))
-                    if not persistent_drop:
-                        continue
-                    for candidate in candidates:
-                        if candidate >= index and values[candidate] <= (
-                                previous + tolerance):
-                            mask[candidate] = True
-                            protected.add(candidate)
-                            reasons.pop(candidate, None)
-                    break
+            previous_index = history_indices[-1]
+            previous = values[previous_index]
+            drop_threshold = max(abs(previous) * 0.02, tolerance)
+            follows_protected_drop = (
+                previous_index in protected and value <= previous + tolerance)
+            starts_degradation_knee = previous - value >= drop_threshold
+            if protect_knees and (
+                    starts_degradation_knee or follows_protected_drop):
+                protected.add(index)
+                continue
+
+            marked.add(index)
+            reasons[index] = (
+                f'超出仅基于历史局部窗口的均值±2σ范围 '
+                f'[{lower:.6g}, {upper:.6g}]')
+            if delete:
+                mask[index] = False
 
     indices = np.flatnonzero(mask).astype(int)
     removed = np.flatnonzero(~mask).astype(int)
@@ -190,6 +224,7 @@ def filter_capacity_outliers(array, bins=40, enabled=True,
         removed_indices=removed,
         protected_indices=np.asarray(sorted(protected), dtype=int),
         reasons=reasons,
+        marked_indices=np.asarray(sorted(marked), dtype=int),
     )
 
 
@@ -207,6 +242,129 @@ def build_instances(sequence, window_size):
         x.append(features)
         y.append(target)
     return np.array(x).astype(np.float32), np.array(y).astype(np.float32)
+
+
+def build_instances_fast(sequence, window_size):
+    """与 :func:`build_instances` 等价的向量化实现。
+
+    零拷贝滑窗，再各复制一次得到 (X, y)；含「长度不足」的边界处理。
+    """
+    seq = np.asarray(sequence, dtype=np.float32).reshape(-1)
+    if len(seq) <= window_size:
+        return (np.empty((0, window_size), np.float32),
+                np.empty((0,), np.float32))
+    view = sliding_window_view(seq, window_size + 1)          # (N, W+1)
+    return view[:, :-1].copy(), view[:, -1].copy()
+
+
+#: 多特征输入默认使用的列。
+#:
+#: 注意 ``dq_v`` 就是适配器里原来叫 ``'SoH'`` 的那一列（电压窗口内放电的容量
+#: 差），它是**健康指标 HI**，不是 SOH（SOH = C / C_rated）。改名以避免混淆。
+FEATURE_COLS = ('capacity', 'dq_v', 'CCCT', 'CVCT', 'resistance')
+
+
+def build_instances_mf(frame, window, cols=FEATURE_COLS, fill_values=None):
+    """多特征滑窗。返回 ``X:(N, W, F)``、``y:(N,)``（下一个循环的容量，永远是第 0 列）。
+
+    缺失值只做**因果前向填充**（只用过去），剩余缺失用训练集统计量
+    ``fill_values`` 填充，不会把未来信息泄漏回窗口。
+    """
+
+    cols = [c for c in cols if c in frame.columns]
+    if not cols or 'capacity' not in cols:
+        raise ValueError('多特征滑窗至少需要 capacity 列')
+    # 容量永远是第 0 列，y 从它取
+    if cols[0] != 'capacity':
+        cols = ['capacity'] + [c for c in cols if c != 'capacity']
+
+    selected = frame.loc[:, cols].astype('float32')
+    # 先用「仅列」的前向填充（不跨列），再按列用训练集统计量兜底
+    selected = selected.ffill()
+    if fill_values is not None:
+        selected = selected.fillna(
+            {c: fill_values.get(c, 0.0) for c in cols})
+    selected = selected.fillna(0.0)
+    array = selected.to_numpy(dtype=np.float32)
+    features = array.shape[1]
+    if len(array) <= window:
+        return (np.empty((0, window, features), np.float32),
+                np.empty((0,), np.float32))
+    view = sliding_window_view(array, (window + 1, features))[:, 0]   # (N, W+1, F)
+    return view[:, :-1, :].copy(), view[:, -1, 0].copy()
+
+
+def feature_fill_values(frame, cols=FEATURE_COLS):
+    """用训练集统计量（均值）填充剩余缺失；只允许在训练电池上拟合。"""
+    values = {}
+    for column in cols:
+        if column not in frame.columns:
+            continue
+        series = frame[column].astype('float64')
+        mean = series.mean(skipna=True)
+        values[column] = float(mean) if np.isfinite(mean) else 0.0
+    return values
+
+
+class FeatureScaler:
+    """逐特征 z-score；只用训练电池的窗口拟合，可 JSON 序列化后随模型保存。"""
+
+    def __init__(self, mean=None, std=None):
+        self.mean = None if mean is None else np.asarray(mean, dtype=np.float64)
+        self.std = None if std is None else np.asarray(std, dtype=np.float64)
+
+    def fit(self, features):
+        array = np.asarray(features, dtype=np.float64)
+        if array.ndim == 2:
+            array = array.reshape(array.shape[0], 1, -1)
+        flat = array.reshape(-1, array.shape[-1])
+        self.mean = np.nanmean(flat, axis=0)
+        std = np.nanstd(flat, axis=0)
+        self.mean = np.where(np.isfinite(self.mean), self.mean, 0.0)
+        self.std = np.where(
+            np.isfinite(std) & (std > 1e-8), std, 1.0)
+        return self
+
+    def transform(self, features):
+        if self.mean is None or self.std is None:
+            raise RuntimeError('FeatureScaler 尚未拟合')
+        array = np.asarray(features, dtype=np.float32)
+        return ((array - self.mean) / self.std).astype(np.float32)
+
+    def to_dict(self):
+        if self.mean is None:
+            raise RuntimeError('FeatureScaler 尚未拟合')
+        return {'mean': self.mean.tolist(), 'std': self.std.tolist()}
+
+    @classmethod
+    def from_dict(cls, data):
+        if not isinstance(data, dict) or 'mean' not in data or 'std' not in data:
+            raise ValueError('FeatureScaler 元数据缺少 mean/std')
+        return cls(mean=data['mean'], std=data['std'])
+
+
+def fit_persistence_blend(windows, targets, model_prediction):
+    """Fit validation-only shrinkage toward the last observed capacity."""
+    windows = np.asarray(windows, dtype=np.float64)
+    targets = np.asarray(targets, dtype=np.float64).reshape(-1)
+    prediction = np.asarray(model_prediction, dtype=np.float64).reshape(-1)
+    if windows.ndim != 2 or windows.shape[1] == 0:
+        raise ValueError('校准窗口必须是非空二维数组')
+    if len(windows) != len(targets) or len(targets) != len(prediction):
+        raise ValueError('校准窗口、标签和预测长度必须一致')
+    if not (np.all(np.isfinite(windows[:, -1])) and
+            np.all(np.isfinite(targets)) and
+            np.all(np.isfinite(prediction))):
+        raise ValueError('校准数据必须全部为有限数值')
+
+    persistence = windows[:, -1]
+    model_delta = prediction - persistence
+    target_delta = targets - persistence
+    denominator = float(np.dot(model_delta, model_delta))
+    if denominator <= 1e-12:
+        return 0.0
+    blend = float(np.dot(model_delta, target_delta) / denominator)
+    return float(np.clip(blend, 0.0, 1.0))
 
 
 def generate_one_step_predictions(sequence, window_size, predict_batch):
