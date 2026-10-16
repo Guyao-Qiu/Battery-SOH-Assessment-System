@@ -150,6 +150,22 @@ class UiPolishLayoutTests(unittest.TestCase):
                 for index in range(window.sidebar_stack.count())
             ]
             self.assertEqual(checked.count(True), 1, "轨道按钮应互斥")
+
+            # 再次点击当前页按钮 → 收起侧边栏（只剩导航轨道）
+            window._nav_group.button(
+                window._sidebar_page_index["log"]).click()
+            self.assertTrue(
+                window.sidebar_stack.isHidden(),
+                "再次点击当前页应收起侧边栏",
+            )
+            # 收起状态下点击其他按钮 → 重新展开并切换页面
+            window._nav_group.button(
+                window._sidebar_page_index["result"]).click()
+            self.assertFalse(window.sidebar_stack.isHidden())
+            self.assertEqual(
+                window.sidebar_stack.currentIndex(),
+                window._sidebar_page_index["result"],
+            )
         finally:
             _dispose_window(window, self.app)
 

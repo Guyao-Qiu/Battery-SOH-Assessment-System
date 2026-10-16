@@ -25,6 +25,7 @@ from PyQt6.QtGui import (
 from ui.chart_show import MplCanvas, CustomToolbar, apply_sup_sub
 from ui.worker import EvalWorker
 from ui.animated_button import AnimatedButton
+from ui.floating_theme_button import FloatingThemeButton
 from ui.style import apply_theme, theme_tokens
 from ui.result_model import (
     COLUMNS,
@@ -522,53 +523,34 @@ class MainWindow(QMainWindow):
         save_geometry(self)          # U4：记住窗口几何
         super().closeEvent(event)
 
-    def build_top_bar(self):
-        """右上顶角的主题切换按钮（C5 / U8）。
+    def build_theme_button(self, parent):
+        """右上角悬浮的圆形主题切换按钮（可拖动，替代原顶部条）。
 
-        默认深色（墨夜）。按钮同时带**图标 + 文字**描述当前目标主题，
-        不只靠颜色区分状态（U6 的无障碍要求）。
+        原来它和标题一起占了一整行顶栏（图二），现在只保留一个圆形图标按钮，
+        悬浮在内容之上、可自由拖动，位置按窗口比例记住。
         """
-        bar = QFrame()
-        bar.setObjectName('topBar')
-        bar.setProperty('role', 'topBar')
-        bar.setFixedHeight(44)
-
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(12, 4, 8, 4)
-        layout.setSpacing(10)
-
-        title = QLabel('Battery SOH Assessment System')
-        title.setProperty('role', 'topBarTitle')
-        layout.addWidget(title)
-
-        subtitle = QLabel('电池健康状态评估 · Research Preview')
-        subtitle.setProperty('role', 'topBarSubtitle')
-        layout.addWidget(subtitle)
-        layout.addStretch(1)
-
-        self.theme_btn = AnimatedButton('', 'ghost')
-        self.theme_btn.setObjectName('themeToggle')
-        self.theme_btn.setAccessibleName('切换浅色或深色主题')
-        self.theme_btn.setMinimumWidth(132)
+        self.theme_btn = FloatingThemeButton(parent)
         self.theme_btn.clicked.connect(self.toggle_theme)
-        layout.addWidget(self.theme_btn)
         self._sync_theme_button()
-        return bar
+        return self.theme_btn
 
     def _sync_theme_button(self):
-        """让按钮文案反映**当前**主题与**点击后**会切到的主题。"""
+        """让按钮图标反映**点击后**会切到的主题（当前深色→显示太阳）。"""
         button = getattr(self, 'theme_btn', None)
         if button is None:
             return
-        if self._theme_mode == 'dark':
-            button.setText('🌙 墨夜（深色）')
-            target = '宣纸（浅色）'
-        else:
-            button.setText('☀ 宣纸（浅色）')
-            target = '墨夜（深色）'
-        button.setToolTip(
-            f'当前：{THEME_UI.get(self._theme_mode, self._theme_mode)}；'
-            f'点击切换到{target}（Ctrl+T）')
+        button.sync_to_theme(self._theme_mode)
+
+    def _reposition_theme_button(self):
+        """窗口尺寸变化时，按保存的比例重新贴合悬浮按钮。"""
+        button = getattr(self, 'theme_btn', None)
+        if button is None:
+            return
+        button.restore_or_default_position()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._reposition_theme_button()
 
     def init_ui(self):
         # 先应用主题（必须在控件创建前）
@@ -582,9 +564,6 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(10, 10, 10, 8)
         main_layout.setSpacing(8)
         central.setLayout(main_layout)
-
-        # ── 顶部条：左侧应用名，右侧主题切换（右上顶角） ──
-        main_layout.addWidget(self.build_top_bar())
 
         # 图标导航侧边栏（数据/参数/结果/日志）+ 中央图表工作区
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -600,9 +579,10 @@ class MainWindow(QMainWindow):
         # 侧栏宽度受「最小窗口下图表仍占主导」的约束（见
         # tests/test_ui_polish_layout.py::test_minimum_workspace_keeps_chart_column_dominant），
         # 结果表在窄面板里靠横向滚动 + 省略号 + 工具提示呈现完整信息。
+        # 侧栏收起时只剩 64px 轨道；展开时页面栈保证 300px 可用宽度
         self.main_splitter.setSizes([430, 790])
         self.main_splitter.setHandleWidth(2)
-        sidebar_widget.setMinimumWidth(360)
+        sidebar_widget.setMinimumWidth(76)
         center_widget.setMinimumWidth(500)
 
         main_layout.addWidget(self.main_splitter, 1)
@@ -613,6 +593,11 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self._set_running_state(False, '准备就绪')
+
+        # 悬浮主题按钮挂在中央控件上（可拖动，随窗口缩放重新贴合）
+        self.build_theme_button(central)
+        self.theme_btn.raise_()
+        self._reposition_theme_button()
 
     def build_sidebar(self, parent):
         """图标导航侧边栏：窄轨道 + 页面栈（数据/参数/结果/日志）。
@@ -635,10 +620,13 @@ class MainWindow(QMainWindow):
         self.sidebar_stack = QStackedWidget()
         self.sidebar_stack.setObjectName('sidebarPages')
         self.sidebar_stack.setAccessibleName('侧边栏页面')
+        self.sidebar_stack.setMinimumWidth(300)
 
         self._nav_group = QButtonGroup(self)
         self._nav_group.setExclusive(True)
         self._sidebar_page_index = {}
+        self._sidebar_expanded = True
+        self._sidebar_expanded_width = 430
         self._nav_shortcuts = []
         for position, (key, label, icon_kind) in enumerate(SIDEBAR_PAGES):
             page = QWidget()
@@ -662,23 +650,58 @@ class MainWindow(QMainWindow):
             nav_button.setCheckable(True)
             nav_button.setAutoRaise(True)
             nav_button.setProperty('role', 'navRailButton')
-            nav_button.setToolTip(f'切换到「{label}」页 (Ctrl+{position + 1})')
+            nav_button.setToolTip(
+                f'「{label}」页 (Ctrl+{position + 1})；再次点击当前页可收起侧边栏')
             nav_button.setAccessibleName(f'{label}页导航')
             self._nav_group.addButton(nav_button, index)
             rail_layout.addWidget(nav_button)
 
             shortcut = QShortcut(QKeySequence(f'Ctrl+{position + 1}'), self)
             shortcut.activated.connect(
-                lambda idx=index: self.sidebar_stack.setCurrentIndex(idx))
+                lambda idx=index: self._set_sidebar_index(idx))
             self._nav_shortcuts.append(shortcut)
 
         rail_layout.addStretch(1)
-        self._nav_group.idClicked.connect(self.sidebar_stack.setCurrentIndex)
+        self._nav_group.idClicked.connect(self._on_nav_clicked)
         self.sidebar_stack.currentChanged.connect(self._sync_nav_buttons)
         self._nav_group.button(0).setChecked(True)
 
         layout.addWidget(rail)
         layout.addWidget(self.sidebar_stack, 1)
+
+    def _on_nav_clicked(self, index):
+        """点击轨道按钮：已展开时点当前页收起、点其他页切换；收起时展开。"""
+        if not self._sidebar_expanded:
+            self._set_sidebar_index(index)
+        elif self.sidebar_stack.currentIndex() == index:
+            self._collapse_sidebar()
+        else:
+            self.sidebar_stack.setCurrentIndex(index)
+
+    def _collapse_sidebar(self):
+        """收起页面栈，只留 64px 轨道；空出的宽度交给图表区。"""
+        self._sidebar_expanded = False
+        sizes = self.main_splitter.sizes()
+        if sizes:
+            self._sidebar_expanded_width = max(
+                sizes[0], self.sidebar_stack.minimumWidth())
+        self.sidebar_stack.setVisible(False)
+        total = sum(sizes) or (self.width() - 40)
+        rail_width = 76
+        self.main_splitter.setSizes(
+            [rail_width, max(total - rail_width, 500)])
+
+    def _set_sidebar_index(self, index):
+        was_collapsed = not self._sidebar_expanded
+        self._sidebar_expanded = True
+        self.sidebar_stack.setVisible(True)
+        self.sidebar_stack.setCurrentIndex(index)
+        if was_collapsed:
+            sizes = self.main_splitter.sizes()
+            total = sum(sizes) or (self.width() - 40)
+            width = getattr(self, '_sidebar_expanded_width', 430)
+            self.main_splitter.setSizes(
+                [width, max(total - width, 500)])
 
     def _sync_nav_buttons(self, index):
         button = self._nav_group.button(index)
@@ -688,7 +711,7 @@ class MainWindow(QMainWindow):
     def _show_sidebar_page(self, key):
         index = self._sidebar_page_index.get(key)
         if index is not None:
-            self.sidebar_stack.setCurrentIndex(index)
+            self._set_sidebar_index(index)
 
     def build_data_page(self, parent):
         layout = QVBoxLayout(parent)
@@ -758,8 +781,8 @@ class MainWindow(QMainWindow):
 
         source_group.setLayout(source_layout)
 
-        layout.addWidget(file_group, 1)
         layout.addWidget(source_group, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(file_group, 1)
 
     def build_params_page(self, parent):
         layout = QVBoxLayout(parent)
@@ -782,7 +805,7 @@ class MainWindow(QMainWindow):
         self.step_section.form_layout.addRow(
             '放电工步:', self.discharge_step_input)
 
-        battery_section = CollapsibleSection('电池与失效判据')
+        battery_section = CollapsibleSection('电池容量与失效判据')
         evaluation_section = CollapsibleSection('评估与验证')
         advanced_section = CollapsibleSection('模型高级参数', expanded=False)
         param_layout.addWidget(self.step_section)
@@ -843,6 +866,21 @@ class MainWindow(QMainWindow):
                  ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF'])
 
         # ---- 多特征输入（A5）：默认只用容量，勾选后启用 HI 特征 ----
+        # 标题与说明占通栏一行，说明紧贴“输入特征”字样下方，复选框另起一行
+        feature_header = QWidget()
+        header_layout = QVBoxLayout(feature_header)
+        header_layout.setContentsMargins(0, 0, 0, 2)
+        header_layout.setSpacing(2)
+        header_layout.addWidget(QLabel('输入特征'))
+        self._feature_hint = QLabel(
+            '默认只用容量（纯自回归）。勾选 dq_v / CCCT / CVCT / 内阻后'
+            '启用多特征输入；dq_v 是电压窗口内的放电容量（健康指标 HI），'
+            '不是 SOH。')
+        self._feature_hint.setProperty('role', 'muted')
+        self._feature_hint.setWordWrap(True)
+        header_layout.addWidget(self._feature_hint)
+        evaluation_section.form_layout.addRow(feature_header)
+
         feature_widget = QWidget()
         feature_layout = QVBoxLayout(feature_widget)
         feature_layout.setContentsMargins(0, 0, 0, 0)
@@ -860,15 +898,11 @@ class MainWindow(QMainWindow):
                     '注意：递归预测时非容量通道保持窗口末值。')
             self.feature_checks[name] = checkbox
             feature_layout.addWidget(checkbox)
-        _add_row(evaluation_section, '输入特征', feature_widget,
-                 ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF'])
-        self._feature_hint = QLabel(
-            '默认只用容量（纯自回归）。勾选 dq_v / CCCT / CVCT / 内阻后'
-            '启用多特征输入；dq_v 是电压窗口内的放电容量（健康指标 HI），'
-            '不是 SOH。')
-        self._feature_hint.setProperty('role', 'muted')
-        self._feature_hint.setWordWrap(True)
-        evaluation_section.form_layout.addRow('', self._feature_hint)
+        feature_label = QLabel()
+        evaluation_section.form_layout.addRow(feature_label, feature_widget)
+        all_modes = ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF']
+        self._param_rows.append((feature_header, feature_widget, all_modes))
+        self._param_rows.append((feature_label, feature_widget, all_modes))
 
         # ---- RNN/LSTM/GRU 专用 ----
         self.hidden_dim_spin = QSpinBox()
@@ -903,8 +937,18 @@ class MainWindow(QMainWindow):
         self.n_seeds_spin.setRange(1, 20)
         self.n_seeds_spin.setValue(5)
         self.n_seeds_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        _add_row(evaluation_section, '多种子数(置信区间)', self.n_seeds_spin,
-                 ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF'])
+        # “置信区间”作为第二行小字放在标签下方，标签列更窄、排版更紧凑
+        n_seeds_label = QWidget()
+        n_seeds_label_layout = QVBoxLayout(n_seeds_label)
+        n_seeds_label_layout.setContentsMargins(0, 0, 0, 0)
+        n_seeds_label_layout.setSpacing(0)
+        n_seeds_label_layout.addWidget(QLabel('多种子数'))
+        n_seeds_sub_label = QLabel('置信区间')
+        n_seeds_sub_label.setProperty('role', 'muted')
+        n_seeds_label_layout.addWidget(n_seeds_sub_label)
+        evaluation_section.form_layout.addRow(n_seeds_label, self.n_seeds_spin)
+        self._param_rows.append((n_seeds_label, self.n_seeds_spin,
+                                 ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF']))
 
         # ---- XGBoost 专用 ----
         self.xgb_n_estimators_spin = QSpinBox()
