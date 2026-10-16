@@ -8,7 +8,7 @@
 - 半透明底 + 细描边，悬浮在内容之上但不抢焦点。
 """
 
-from PyQt6.QtCore import Qt, QPoint, QSettings, QSize
+from PyQt6.QtCore import Qt, QPoint, QSettings, QSize, pyqtSignal
 from PyQt6.QtWidgets import QPushButton
 
 from utils.icon_generator import get_dialog_icon
@@ -26,6 +26,9 @@ _DRAG_THRESHOLD = 4
 
 class FloatingThemeButton(QPushButton):
     """圆形、可拖动的主题切换按钮。"""
+
+    #: 按钮被拖动到新位置时发出；主窗口借此让图表画布全量重绘。
+    moved = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -51,10 +54,14 @@ class FloatingThemeButton(QPushButton):
 
     # ── 拖动 ────────────────────────────────────────────
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_origin = event.globalPosition().toPoint()
+        if event.button() == Qt.MouseButton.LeftButton and self.parent() is not None:
+            global_pos = event.globalPosition().toPoint()
+            # 抓取点全部在**父控件坐标系**里算：frameGeometry() 返回的是父坐标，
+            # 直接与 globalPosition()（屏幕坐标）相减会差一个父窗口原点，
+            # 导致拖动时按钮跳到偏移位置。
             self._drag_offset = (
-                event.globalPosition().toPoint() - self.frameGeometry().topLeft())
+                self.parent().mapFromGlobal(global_pos) - self.pos())
+            self._drag_origin = global_pos
             self._dragged = False
         # 仍然交给基类：保留按压视觉反馈与正常 clicked 语义
         super().mousePressEvent(event)
@@ -65,13 +72,18 @@ class FloatingThemeButton(QPushButton):
             super().mouseMoveEvent(event)
             return
         global_pos = event.globalPosition().toPoint()
-        if (global_pos - self._drag_origin).manhattanLength() > _DRAG_THRESHOLD:
-            if not self._dragged:
-                self._dragged = True
-                # 取消按压态：拖动松手不应再被算作一次点击
-                self.setDown(False)
-            self.move(self._clamped_position(
-                parent.mapFromGlobal(global_pos - self._drag_offset)))
+        if not self._dragged and (
+                global_pos - self._drag_origin).manhattanLength() > _DRAG_THRESHOLD:
+            self._dragged = True
+            # 取消按压态：拖动松手不应再被算作一次点击
+            self.setDown(False)
+        if self._dragged:
+            # 保持抓取点始终贴着鼠标（鼠标在哪，按钮就跟随到哪）
+            target = self._clamped_position(
+                parent.mapFromGlobal(global_pos) - self._drag_offset)
+            if target != self.pos():
+                self.move(target)
+                self.moved.emit()
             event.accept()
             return
         super().mouseMoveEvent(event)
