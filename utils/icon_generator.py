@@ -341,6 +341,28 @@ def _draw_sun(p, s, accent):
     _accent_dot(p, accent, s - 7, 7)
 
 
+def _draw_book(p, s, accent):
+    """手册 — 翻开的书：中缝 + 两侧页边线。"""
+    m = s * 0.18
+    mid = s * 0.50
+    top, bottom = s * 0.24, s * 0.76
+    p.drawLine(int(mid), int(top), int(mid), int(bottom))
+    for left_x, right_x in ((m, s - m),):
+        p.drawPolyline([
+            QPointF(mid, top),
+            QPointF(left_x, top + s * 0.05),
+            QPointF(left_x, bottom - s * 0.02),
+            QPointF(mid, bottom),
+        ])
+        p.drawPolyline([
+            QPointF(mid, top),
+            QPointF(right_x, top + s * 0.05),
+            QPointF(right_x, bottom - s * 0.02),
+            QPointF(mid, bottom),
+        ])
+    _accent_dot(p, accent, s - 7, 7)
+
+
 def _draw_folder(p, s, accent):
     """文件夹 — 经典文件柜造型。"""
     m = s * 0.18
@@ -606,6 +628,7 @@ _DIALOG_DRAW_FUNCS = {
     'log':         _draw_log,
     'moon':        _draw_moon,
     'sun':         _draw_sun,
+    'book':        _draw_book,
     'model':       _draw_model,
     'import':      _draw_import,
     'export':      _draw_export,
@@ -632,6 +655,7 @@ _ACCENT_FOR_KIND = {
     'log':         _ACCENT_INFO,
     'moon':        None,
     'sun':         None,
+    'book':        _ACCENT_INFO,
     'model':       _ACCENT_MODEL,
     'import':      _ACCENT_INFO,
     'export':      _ACCENT_SUCCESS,

@@ -87,13 +87,24 @@ def from_ui(mapping, text, default=None):
     return default if default is not None else next(iter(mapping))
 
 
-#: 多特征输入的候选列（capacity 永远是第 0 列 / 预测目标）
+#: 多特征输入的候选列（capacity 永远是第 0 列 / 预测目标）。
+#: 纯文本写法：配置、日志、无障碍名称等不支持富文本的位置使用。
 FEATURE_OPTIONS = {
     'capacity': '容量（必选）',
     'dq_v': '电压窗口放电容量 dq_v',
     'CCCT': '恒流充电时长 CCCT',
     'CVCT': '恒压充电时长 CVCT',
     'resistance': '内阻 resistance',
+}
+#: 界面上的分段写法：``(中文说明, 数学符号富文本)``。
+#: 变量用斜体、下标用 <sub>（数学排版习惯），避免 dq_v 这种下划线写法。
+#: QCheckBox 只渲染纯文本，所以数学符号由旁边的 QLabel 承载。
+FEATURE_LABELS = {
+    'capacity': ('容量（必选）', ''),
+    'dq_v': ('电压窗口放电容量', '<i>dq</i><sub>v</sub>'),
+    'CCCT': ('恒流充电时长', '<i>CCCT</i>'),
+    'CVCT': ('恒压充电时长', '<i>CVCT</i>'),
+    'resistance': ('内阻', '<i>resistance</i>'),
 }
 DEFAULT_FEATURES = ('capacity',)
 
