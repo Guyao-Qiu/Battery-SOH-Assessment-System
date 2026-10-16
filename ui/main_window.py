@@ -38,6 +38,7 @@ from ui.result_model import (
 )
 from utils.config import (
     DEVICE_UI,
+    FEATURE_LABELS,
     FEATURE_OPTIONS,
     NORM_UI,
     THEME_UI,
@@ -76,6 +77,9 @@ SIDEBAR_PAGES = (
     ('result', '结果', 'chart'),
     ('log', '日志', 'log'),
 )
+
+#: 帮助面板正文字号（pt）的持久化键。
+HELP_FONT_SIZE_KEY = 'help_font_size'
 
 
 def _settings():
@@ -257,24 +261,168 @@ def _step_input_value(step_input):
 
 
 class _HelpDialog(QDialog):
-    """模型参数帮助对话框（非模态，随模型切换实时更新）"""
+    """模型参数帮助对话框（非模态，随模型切换实时更新）。
+
+    顶部提供字号设置（默认 12pt），改动后**立即**应用到当前内容，
+    并记住用户的选择，下次打开沿用。
+    """
+
+    #: 帮助正文字号（pt）；默认 12
+    DEFAULT_FONT_SIZE = 12
+    FONT_SIZE_RANGE = (8, 24)
+
     def __init__(self, parent, mode):
         super().__init__(parent)
         self.setWindowTitle('参数设置帮助')
         self.setWindowIcon(get_dialog_icon('help'))
-        self.resize(550, 600)
+        self.resize(620, 640)
         self.setMinimumSize(450, 400)
 
+        self._mode = mode
+        self._font_size = int(_settings().value(
+            HELP_FONT_SIZE_KEY, self.DEFAULT_FONT_SIZE) or self.DEFAULT_FONT_SIZE)
+
         layout = QVBoxLayout(self)
+
+        # ── 字号工具行 ──
+        tools = QHBoxLayout()
+        tools.addWidget(QLabel('字号：'))
+        self._font_spin = QSpinBox()
+        self._font_spin.setRange(*self.FONT_SIZE_RANGE)
+        self._font_spin.setValue(self._font_size)
+        self._font_spin.setSuffix(' pt')
+        self._font_spin.setAccessibleName('帮助正文字号')
+        self._font_spin.setToolTip('调整帮助文档字号，立即生效并记住选择')
+        self._font_spin.valueChanged.connect(self._on_font_size_changed)
+        tools.addWidget(self._font_spin)
+        tools.addStretch(1)
+        layout.addLayout(tools)
+
         self._text = QTextEdit()
         self._text.setReadOnly(True)
         layout.addWidget(self._text)
 
         self.set_content(mode)
 
+    def _on_font_size_changed(self, size):
+        self._font_size = int(size)
+        _settings().setValue(HELP_FONT_SIZE_KEY, self._font_size)
+        self._render()
+
     def set_content(self, mode):
-        content = MainWindow._HELP_CONTENT.get(mode, '<p>暂无该模型的帮助信息。</p>')
+        self._mode = mode
+        self._render()
+
+    def _render(self):
+        """把正文按当前字号渲染（即时生效）。"""
+        content = MainWindow._HELP_CONTENT.get(
+            self._mode, '<p>暂无该模型的帮助信息。</p>')
+        self._text.document().setDefaultStyleSheet(
+            f'body {{ font-size: {self._font_size}pt; }}'
+            f'h2 {{ font-size: {self._font_size + 5}pt; }}'
+            f'h3 {{ font-size: {self._font_size + 2}pt; }}')
         self._text.setHtml(content)
+        # 让控件自身的默认字号也跟着走，标题之外的段落同样受控
+        font = self._text.font()
+        font.setPointSize(self._font_size)
+        self._text.setFont(font)
+
+
+class _GuideDialog(QDialog):
+    """系统使用指南：完整介绍工作流程、数据格式与常见问题。
+
+    与 F1 的参数帮助分开：这里讲“怎么用这个系统”，
+    F1 讲“当前模型的每个参数是什么意思”。
+    """
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle('使用指南')
+        self.setWindowIcon(get_dialog_icon('book'))
+        self.resize(700, 680)
+        self.setMinimumSize(480, 420)
+
+        layout = QVBoxLayout(self)
+        self._text = QTextEdit()
+        self._text.setReadOnly(True)
+        self._text.setHtml(self.guide_html())
+        layout.addWidget(self._text)
+
+    @staticmethod
+    def guide_html():
+        """使用指南正文（纯静态内容）。"""
+        adapters = '、'.join(
+            f'{display}（{name}）' for name, display in get_adapter_list())
+        return f"""
+<h2>电池 SOH 评估系统 · 使用指南</h2>
+
+<h3>一、这个系统能做什么</h3>
+<p>导入电池循环数据后，系统用循环神经网络（RNN / GRU / LSTM）或树模型
+（XGBoost / RF）学习容量退化趋势，输出：</p>
+<ul>
+  <li><b>容量预测曲线</b>：实测容量与模型预测容量对比；</li>
+  <li><b>失效循环与剩余寿命（RUL）</b>：容量跌破失效阈值时的循环序号与还剩多少个循环；</li>
+  <li><b>评估指标</b>：RMSE、MAE、R²、Pearson、RE，以及跨电池汇总；</li>
+  <li><b>可导出的报告</b>：report.json、评估结果.xlsx、评估结果.png。</li>
+</ul>
+
+<h3>二、标准工作流程</h3>
+<ol>
+  <li><b>导入数据</b>（左栏「数据」页）：点「导入文件」选 .xlsx/.csv，或
+      「导入文件夹」批量导入整个目录。导入后队列会显示条目数。</li>
+  <li><b>选数据源格式</b>：根据数据来源选择适配器（{adapters}）。
+      CALCE 格式需要填写工步编号（可留空表示"无"）。</li>
+  <li><b>设置参数</b>（左栏「参数」页）：
+      <ul>
+        <li><b>电池容量与失效判据</b>：额定容量、失效阈值比例、SOH 上下电压；</li>
+        <li><b>评估与验证</b>：窗口大小、评估指标、输入特征、随机种子、多种子数；</li>
+        <li><b>模型高级参数</b>：隐藏层维度、训练轮数、归一化、计算设备（默认折叠）。</li>
+      </ul>
+      不确定某个参数含义时，按 <b>F1</b> 或点「帮助」查看当前模型的参数说明。</li>
+  <li><b>选择模型</b>（中间顶部）：RNN / GRU / LSTM / XGBoost / RF。
+      不确定时推荐先用 <b>GRU</b>（速度与效果平衡）。</li>
+  <li><b>开始评估</b>：点绿色大按钮或按 <b>Ctrl+Enter</b>。
+      训练期间可随时按「停止」在安全检查点中断，参数与数据都会保留。</li>
+  <li><b>查看结果</b>（左栏「结果」页）：可排序表格 + 跨电池汇总行 + 图表。
+      用「预测起点」下拉框切换不同的滚动起点，用「复制表格 / 导出 CSV」带走数据。</li>
+  <li><b>保存与导出</b>：训练完成后可「保存模型」；点「导出报告」生成完整报告包。</li>
+</ol>
+
+<h3>三、界面导航</h3>
+<ul>
+  <li>左侧窄轨道四个按钮对应四个页面：数据 / 参数 / 结果 / 日志，
+      快捷键 <b>Ctrl+1 ~ Ctrl+4</b>；</li>
+  <li><b>再次点击当前页按钮可收起侧边栏</b>，把空间让给图表；再点任意按钮展开；</li>
+  <li>右上角圆形按钮切换深浅主题（<b>Ctrl+T</b>），按住可以拖到任意位置；</li>
+  <li>图表支持右键或双击全屏查看，按 <b>Esc</b> 退出全屏。</li>
+</ul>
+
+<h3>四、加载已有模型做预测</h3>
+<ol>
+  <li>点「加载模型」选择之前保存的 .pt / .pth / .joblib 文件；</li>
+  <li>导入新数据后点「开始评估」，此时执行的是<b>预测</b>而不是重新训练；</li>
+  <li>点「卸载模型」可切回训练模式。</li>
+</ol>
+
+<h3>五、实时数据接入（实验功能）</h3>
+<p>加载模型后点「接入数据」可开启 TCP 服务（默认只监听本机 127.0.0.1:8888），
+外部程序推送容量数据即可实时得到 SOH / RUL 预测。需要局域网访问时，
+必须显式勾选「允许局域网访问」，系统会自动生成访问 token。</p>
+
+<h3>六、常见问题</h3>
+<ul>
+  <li><b>点了「开始评估」没反应？</b> 先确认已导入数据；参数不合规时系统会弹出
+      校验提示并列出具体问题。</li>
+  <li><b>结果指标不理想？</b> 检查窗口大小是否合适（数据循环数少时不要设太大）、
+      失效阈值比例是否符合你的电池体系，并对比日志里的基线说明。</li>
+  <li><b>想知道模型有没有超过简单基线？</b> 结果区会给出技能分与平推基线对比；
+      技能分低于 0.05 时会明确警告。</li>
+  <li><b>训练很慢？</b> 在「模型高级参数」里确认计算设备；没有 NVIDIA 显卡时
+      会自动使用 CPU。</li>
+  <li><b>置信区间怎么理解？</b> 它只表示同一留一折内随机种子的波动，
+      <b>不代表</b>跨电池的总体不确定性（结果区有同样的说明）。</li>
+</ul>
+"""
 
 
 class CollapsibleSection(QFrame):
@@ -531,8 +679,17 @@ class MainWindow(QMainWindow):
         """
         self.theme_btn = FloatingThemeButton(parent)
         self.theme_btn.clicked.connect(self.toggle_theme)
+        # 按钮拖过图表时，让画布整体重绘：matplotlib 画布是 WA_OpaquePaintEvent
+        # 的不透明控件，只做局部重绘会在它上面留下竖线状残影。
+        self.theme_btn.moved.connect(self._repaint_canvas)
         self._sync_theme_button()
         return self.theme_btn
+
+    def _repaint_canvas(self):
+        """强制图表画布全量重绘（悬浮按钮拖动后清除残影）。"""
+        canvas = getattr(self, 'canvas', None)
+        if canvas is not None:
+            canvas.update()
 
     def _sync_theme_button(self):
         """让按钮图标反映**点击后**会切到的主题（当前深色→显示太阳）。"""
@@ -662,6 +819,21 @@ class MainWindow(QMainWindow):
             self._nav_shortcuts.append(shortcut)
 
         rail_layout.addStretch(1)
+
+        # ── 底部：使用指南（详细介绍整个系统的用法） ──
+        self.guide_btn = QToolButton()
+        self.guide_btn.setText('指南')
+        self.guide_btn.setIcon(get_dialog_icon('book'))
+        self.guide_btn.setIconSize(QSize(24, 24))
+        self.guide_btn.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        self.guide_btn.setAutoRaise(True)
+        self.guide_btn.setProperty('role', 'navRailButton')
+        self.guide_btn.setToolTip('打开使用指南（系统用法、数据格式与常见问题）')
+        self.guide_btn.setAccessibleName('使用指南')
+        self.guide_btn.clicked.connect(self.show_guide)
+        rail_layout.addWidget(self.guide_btn)
+
         self._nav_group.idClicked.connect(self._on_nav_clicked)
         self.sidebar_stack.currentChanged.connect(self._sync_nav_buttons)
         self._nav_group.button(0).setChecked(True)
@@ -816,6 +988,8 @@ class MainWindow(QMainWindow):
 
         def _add_row(section, label_text, widget, modes):
             label = QLabel(label_text)
+            # 标签可能带数学符号的富文本标记（斜体变量 / 下标）
+            label.setTextFormat(Qt.TextFormat.RichText)
             section.form_layout.addRow(label, widget)
             self._param_rows.append((label, widget, modes))
 
@@ -841,7 +1015,7 @@ class MainWindow(QMainWindow):
         self.voltage_upper_spin.setSingleStep(0.05)
         self.voltage_upper_spin.setValue(3.8)
         self.voltage_upper_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        _add_row(battery_section, 'SOH上电压 (V)', self.voltage_upper_spin,
+        _add_row(battery_section, '<i>SOH</i> 上电压 (V)', self.voltage_upper_spin,
                  ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF'])
 
         self.voltage_lower_spin = QDoubleSpinBox()
@@ -850,7 +1024,7 @@ class MainWindow(QMainWindow):
         self.voltage_lower_spin.setSingleStep(0.05)
         self.voltage_lower_spin.setValue(3.4)
         self.voltage_lower_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        _add_row(battery_section, 'SOH下电压 (V)', self.voltage_lower_spin,
+        _add_row(battery_section, '<i>SOH</i> 下电压 (V)', self.voltage_lower_spin,
                  ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF'])
 
         self.feature_size_spin = QSpinBox()
@@ -873,9 +1047,11 @@ class MainWindow(QMainWindow):
         header_layout.setSpacing(2)
         header_layout.addWidget(QLabel('输入特征'))
         self._feature_hint = QLabel(
-            '默认只用容量（纯自回归）。勾选 dq_v / CCCT / CVCT / 内阻后'
-            '启用多特征输入；dq_v 是电压窗口内的放电容量（健康指标 HI），'
-            '不是 SOH。')
+            '默认只用容量（纯自回归）。勾选 <i>dq</i><sub>v</sub> / '
+            '<i>CCCT</i> / <i>CVCT</i> / 内阻后启用多特征输入；'
+            '<i>dq</i><sub>v</sub> 是电压窗口内的放电容量（健康指标 '
+            '<i>HI</i>），不是 <i>SOH</i>。')
+        self._feature_hint.setTextFormat(Qt.TextFormat.RichText)
         self._feature_hint.setProperty('role', 'muted')
         self._feature_hint.setWordWrap(True)
         header_layout.addWidget(self._feature_hint)
@@ -887,7 +1063,16 @@ class MainWindow(QMainWindow):
         feature_layout.setSpacing(2)
         self.feature_checks = {}
         for name, label in FEATURE_OPTIONS.items():
-            checkbox = QCheckBox(label)
+            # QCheckBox 不渲染富文本：复选框只放中文说明，数学符号用
+            # 旁边的富文本 QLabel 承载（斜体变量 + 下标，数学排版习惯）。
+            text, math_html = FEATURE_LABELS.get(name, (label, ''))
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(4)
+
+            checkbox = QCheckBox(text)
+            checkbox.setAccessibleName(label)
             if name == 'capacity':
                 checkbox.setChecked(True)
                 checkbox.setEnabled(False)      # 容量是预测目标，必选
@@ -896,8 +1081,16 @@ class MainWindow(QMainWindow):
                 checkbox.setToolTip(
                     '勾选后模型除容量外还使用该健康指标（HI）。'
                     '注意：递归预测时非容量通道保持窗口末值。')
+            row_layout.addWidget(checkbox)
+            if math_html:
+                math_label = QLabel(math_html)
+                math_label.setTextFormat(Qt.TextFormat.RichText)
+                math_label.setProperty('role', 'muted')
+                math_label.setToolTip(label)
+                row_layout.addWidget(math_label)
+            row_layout.addStretch(1)
             self.feature_checks[name] = checkbox
-            feature_layout.addWidget(checkbox)
+            feature_layout.addWidget(row)
         feature_label = QLabel()
         evaluation_section.form_layout.addRow(feature_label, feature_widget)
         all_modes = ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF']
@@ -1040,6 +1233,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.help_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
         self._help_dialog = None
+        self._guide_dialog = None
         self._update_param_panel('RNN')
 
     def build_center_panel(self, parent):
@@ -2182,6 +2376,15 @@ class MainWindow(QMainWindow):
         if self._help_dialog is None or not self._help_dialog.isVisible():
             self._help_dialog = _HelpDialog(self, self.current_mode)
             self._help_dialog.show()
+
+    def show_guide(self):
+        """打开使用指南（非模态，重复点击复用同一窗口）。"""
+        if self._guide_dialog is None or not self._guide_dialog.isVisible():
+            self._guide_dialog = _GuideDialog(self)
+            self._guide_dialog.show()
+        else:
+            self._guide_dialog.raise_()
+            self._guide_dialog.activateWindow()
 
     def on_progress(self, event):
         total = max(0, int(event.get('total', 0)))

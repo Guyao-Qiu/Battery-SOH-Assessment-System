@@ -1310,8 +1310,28 @@ class CustomToolbar(NavigationToolbar2QT):
                 break
 
     def _open_line_style_dialog(self):
+        """打开线条样式面板；已打开时复用并前置，不重复新建窗口。"""
+        dlg = getattr(self, '_line_style_dialog', None)
+        if dlg is not None:
+            try:
+                still_alive = not dlg.isHidden() or dlg.isVisible()
+            except RuntimeError:
+                # 底层 C++ 对象已被销毁（例如父窗口关闭）
+                still_alive = False
+            if still_alive:
+                dlg.show()
+                dlg.raise_()
+                dlg.activateWindow()
+                return
         dlg = LineStyleDialog(self.canvas.figure, self.canvas, self)
+        # 关闭即释放，避免持有已销毁对象
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        dlg.finished.connect(self._forget_line_style_dialog)
+        self._line_style_dialog = dlg
         dlg.show()
+
+    def _forget_line_style_dialog(self, _result=None):
+        self._line_style_dialog = None
 
     # ── 汉化 configure_subplots ──────────────────────────
     def configure_subplots(self):
