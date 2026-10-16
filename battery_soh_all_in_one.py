@@ -3,7 +3,7 @@
 #  Battery SOH Assessment System —— 单文件整合版 (All-in-One)
 # ===========================================================================
 #  本文件由 scripts/build_all_in_one.py 自动生成，请勿手工编辑。
-#  生成时间: 2026-10-16 09:52:30
+#  生成时间: 2026-10-16 13:48:04
 #  内嵌模块: 41 个（原 core/ models/ ui/ utils/ 全部源码）
 #
 #  运行方式:
@@ -723,7 +723,7 @@ _EMBEDDED_STATIC = {
 _EMBEDDED_CONFIG = (
         'ew0KICAicmF0ZWRfY2FwYWNpdHkiOiAwLjAxLA0KICAidGhyZXNob2xkX3JhdGlvIjogMS4wLA0K'
         'ICAidm9sdGFnZV91cHBlciI6IDMuOCwNCiAgInZvbHRhZ2VfbG93ZXIiOiAzLjQsDQogICJ3aW5k'
-        'b3dfc2l6ZSI6IDE2LA0KICAiZXBvY2hzIjogMTAwLA0KICAiaGlkZGVuX2RpbSI6IDY0LA0KICAi'
+        'b3dfc2l6ZSI6IDE2LA0KICAiZXBvY2hzIjogMTAwLA0KICAiaGlkZGVuX2RpbSI6IDYyLA0KICAi'
         'c2VlZCI6IDAsDQogICJuX3NlZWRzIjogMiwNCiAgIm1vZGUiOiAiUk5OIiwNCiAgIm1ldHJpYyI6'
         'ICJybXNlIiwNCiAgImRldmljZSI6ICJjcHUiLA0KICAibm9ybV9tZXRob2QiOiAicmF0ZWQiLA0K'
         'ICAiZmVhdHVyZV9jb2x1bW5zIjogWw0KICAgICJjYXBhY2l0eSINCiAgXSwNCiAgIm5fZXN0aW1h'
@@ -1456,6 +1456,7 @@ _MODULE_SOURCES['utils.icon_generator'] = (
     '    但保持低饱和度，避免抢眼\n'
     '  - 同一图标仅生成一次并缓存，重复调用零开销\n'
     '"""\n'
+    'import math\n'
     'import sys\n'
     '\n'
     'from PyQt6.QtCore import Qt, QRectF, QPointF, QSize\n'
@@ -1756,6 +1757,38 @@ _MODULE_SOURCES['utils.icon_generator'] = (
     '    _accent_dot(p, accent, s - 7, 7)\n'
     '\n'
     '\n'
+    'def _draw_moon(p, s, accent):\n'
+    '    """月亮 — 月牙（大圆挖去偏移圆），用于深色主题（墨夜）。"""\n'
+    '    path = QPainterPath()\n'
+    '    path.addEllipse(QPointF(s * 0.50, s * 0.50), s * 0.30, s * 0.30)\n'
+    '    cut = QPainterPath()\n'
+    '    cut.addEllipse(QPointF(s * 0.64, s * 0.38), s * 0.28, s * 0.28)\n'
+    '    crescent = path.subtracted(cut)\n'
+    '    p.save()\n'
+    '    p.setPen(Qt.PenStyle.NoPen)\n'
+    '    p.setBrush(_color(_LINE_COLOR_KEY))\n'
+    '    p.drawPath(crescent)\n'
+    '    p.restore()\n'
+    '    _accent_dot(p, accent, s - 7, 7)\n'
+    '\n'
+    '\n'
+    'def _draw_sun(p, s, accent):\n'
+    '    """太阳 — 圆 + 八条射线，用于浅色主题（宣纸）。"""\n'
+    '    cx, cy = s / 2, s / 2\n'
+    '    r = s * 0.19\n'
+    '    p.drawEllipse(QPointF(cx, cy), r, r)\n'
+    '    for index in range(8):\n'
+    '        angle = index * math.pi / 4\n'
+    '        inner, outer = r * 1.55, r * 2.15\n'
+    '        p.drawLine(\n'
+    '            QPointF(cx + math.cos(angle) * inner,\n'
+    '                    cy + math.sin(angle) * inner),\n'
+    '            QPointF(cx + math.cos(angle) * outer,\n'
+    '                    cy + math.sin(angle) * outer),\n'
+    '        )\n'
+    '    _accent_dot(p, accent, s - 7, 7)\n'
+    '\n'
+    '\n'
     'def _draw_folder(p, s, accent):\n'
     '    """文件夹 — 经典文件柜造型。"""\n'
     '    m = s * 0.18\n'
@@ -2019,6 +2052,8 @@ _MODULE_SOURCES['utils.icon_generator'] = (
     "    'chart':       _draw_chart,\n"
     "    'settings':    _draw_settings,\n"
     "    'log':         _draw_log,\n"
+    "    'moon':        _draw_moon,\n"
+    "    'sun':         _draw_sun,\n"
     "    'model':       _draw_model,\n"
     "    'import':      _draw_import,\n"
     "    'export':      _draw_export,\n"
@@ -2043,6 +2078,8 @@ _MODULE_SOURCES['utils.icon_generator'] = (
     "    'chart':       _ACCENT_INFO_D,\n"
     "    'settings':    _ACCENT_INFO,\n"
     "    'log':         _ACCENT_INFO,\n"
+    "    'moon':        None,\n"
+    "    'sun':         None,\n"
     "    'model':       _ACCENT_MODEL,\n"
     "    'import':      _ACCENT_INFO,\n"
     "    'export':      _ACCENT_SUCCESS,\n"
@@ -7868,39 +7905,24 @@ _MODULE_SOURCES['ui.style'] = (
     '    letter-spacing: 0.5px;\n'
     '}}\n'
     '\n'
-    '/* ── 顶部条（右上顶角主题切换） ────────────────── */\n'
-    'QFrame[role="topBar"] {{\n'
-    "    background: {COLORS['bg_elevated']};\n"
-    "    border: 1px solid {COLORS['border_soft']};\n"
-    '    border-radius: 6px;\n'
-    '}}\n'
-    'QLabel[role="topBarTitle"] {{\n'
-    "    {_font(11, 'bold')}\n"
-    "    color: {COLORS['text']};\n"
-    '    letter-spacing: 0.6px;\n'
-    '}}\n'
-    'QLabel[role="topBarSubtitle"] {{\n'
-    '    {_font(9)}\n'
-    "    color: {COLORS['text_dim']};\n"
-    '    letter-spacing: 0.4px;\n'
-    '}}\n'
-    'QPushButton#themeToggle {{\n'
-    "    {_font(9, 'bold')}\n"
-    "    color: {COLORS['text']};\n"
-    "    background: {COLORS['bg_surface']};\n"
+    '/* ── 悬浮圆形主题按钮（右上角，可拖动） ─────────── */\n'
+    'QPushButton[role="floatingTheme"] {{\n'
+    "    background: {rgba(COLORS['bg_elevated'], 0.92)};\n"
     "    border: 1px solid {COLORS['border']};\n"
-    '    border-radius: 14px;\n'
-    '    padding: 5px 14px;\n'
+    '    border-radius: 20px;\n'
+    '    padding: 0;\n'
+    '    min-width: 0;\n'
+    '    min-height: 0;\n'
     '}}\n'
-    'QPushButton#themeToggle:hover {{\n'
+    'QPushButton[role="floatingTheme"]:hover {{\n'
     "    background: {COLORS['bg_hover']};\n"
     "    border-color: {COLORS['primary']};\n"
     '}}\n'
-    'QPushButton#themeToggle:pressed {{\n'
+    'QPushButton[role="floatingTheme"]:pressed {{\n'
     "    background: {COLORS['primary']};\n"
-    "    color: {COLORS['on_accent']};\n"
+    '    padding: 0;\n'
     '}}\n'
-    'QPushButton#themeToggle:focus {{\n'
+    'QPushButton[role="floatingTheme"]:focus {{\n'
     "    border: 2px solid {COLORS['primary']};\n"
     '}}\n'
     'QLabel[role="metric"] {{\n'
@@ -12608,6 +12630,7 @@ _MODULE_SOURCES['ui.main_window'] = (
     'from ui.chart_show import MplCanvas, CustomToolbar, apply_sup_sub\n'
     'from ui.worker import EvalWorker\n'
     'from ui.animated_button import AnimatedButton\n'
+    'from ui.floating_theme_button import FloatingThemeButton\n'
     'from ui.style import apply_theme, theme_tokens\n'
     'from ui.result_model import (\n'
     '    COLUMNS,\n'
@@ -13105,53 +13128,34 @@ _MODULE_SOURCES['ui.main_window'] = (
     '        save_geometry(self)          # U4：记住窗口几何\n'
     '        super().closeEvent(event)\n'
     '\n'
-    '    def build_top_bar(self):\n'
-    '        """右上顶角的主题切换按钮（C5 / U8）。\n'
+    '    def build_theme_button(self, parent):\n'
+    '        """右上角悬浮的圆形主题切换按钮（可拖动，替代原顶部条）。\n'
     '\n'
-    '        默认深色（墨夜）。按钮同时带**图标 + 文字**描述当前目标主题，\n'
-    '        不只靠颜色区分状态（U6 的无障碍要求）。\n'
+    '        原来它和标题一起占了一整行顶栏（图二），现在只保留一个圆形图标按钮，\n'
+    '        悬浮在内容之上、可自由拖动，位置按窗口比例记住。\n'
     '        """\n'
-    '        bar = QFrame()\n'
-    "        bar.setObjectName('topBar')\n"
-    "        bar.setProperty('role', 'topBar')\n"
-    '        bar.setFixedHeight(44)\n'
-    '\n'
-    '        layout = QHBoxLayout(bar)\n'
-    '        layout.setContentsMargins(12, 4, 8, 4)\n'
-    '        layout.setSpacing(10)\n'
-    '\n'
-    "        title = QLabel('Battery SOH Assessment System')\n"
-    "        title.setProperty('role', 'topBarTitle')\n"
-    '        layout.addWidget(title)\n'
-    '\n'
-    "        subtitle = QLabel('电池健康状态评估 · Research Preview')\n"
-    "        subtitle.setProperty('role', 'topBarSubtitle')\n"
-    '        layout.addWidget(subtitle)\n'
-    '        layout.addStretch(1)\n'
-    '\n'
-    "        self.theme_btn = AnimatedButton('', 'ghost')\n"
-    "        self.theme_btn.setObjectName('themeToggle')\n"
-    "        self.theme_btn.setAccessibleName('切换浅色或深色主题')\n"
-    '        self.theme_btn.setMinimumWidth(132)\n'
+    '        self.theme_btn = FloatingThemeButton(parent)\n'
     '        self.theme_btn.clicked.connect(self.toggle_theme)\n'
-    '        layout.addWidget(self.theme_btn)\n'
     '        self._sync_theme_button()\n'
-    '        return bar\n'
+    '        return self.theme_btn\n'
     '\n'
     '    def _sync_theme_button(self):\n'
-    '        """让按钮文案反映**当前**主题与**点击后**会切到的主题。"""\n'
+    '        """让按钮图标反映**点击后**会切到的主题（当前深色→显示太阳）。"""\n'
     "        button = getattr(self, 'theme_btn', None)\n"
     '        if button is None:\n'
     '            return\n'
-    "        if self._theme_mode == 'dark':\n"
-    "            button.setText('🌙 墨夜（深色）')\n"
-    "            target = '宣纸（浅色）'\n"
-    '        else:\n'
-    "            button.setText('☀ 宣纸（浅色）')\n"
-    "            target = '墨夜（深色）'\n"
-    '        button.setToolTip(\n'
-    "            f'当前：{THEME_UI.get(self._theme_mode, self._theme_mode)}；'\n"
-    "            f'点击切换到{target}（Ctrl+T）')\n"
+    '        button.sync_to_theme(self._theme_mode)\n'
+    '\n'
+    '    def _reposition_theme_button(self):\n'
+    '        """窗口尺寸变化时，按保存的比例重新贴合悬浮按钮。"""\n'
+    "        button = getattr(self, 'theme_btn', None)\n"
+    '        if button is None:\n'
+    '            return\n'
+    '        button.restore_or_default_position()\n'
+    '\n'
+    '    def resizeEvent(self, event):\n'
+    '        super().resizeEvent(event)\n'
+    '        self._reposition_theme_button()\n'
     '\n'
     '    def init_ui(self):\n'
     '        # 先应用主题（必须在控件创建前）\n'
@@ -13165,9 +13169,6 @@ _MODULE_SOURCES['ui.main_window'] = (
     '        main_layout.setContentsMargins(10, 10, 10, 8)\n'
     '        main_layout.setSpacing(8)\n'
     '        central.setLayout(main_layout)\n'
-    '\n'
-    '        # ── 顶部条：左侧应用名，右侧主题切换（右上顶角） ──\n'
-    '        main_layout.addWidget(self.build_top_bar())\n'
     '\n'
     '        # 图标导航侧边栏（数据/参数/结果/日志）+ 中央图表工作区\n'
     '        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)\n'
@@ -13183,9 +13184,10 @@ _MODULE_SOURCES['ui.main_window'] = (
     '        # 侧栏宽度受「最小窗口下图表仍占主导」的约束（见\n'
     '        # tests/test_ui_polish_layout.py::test_minimum_workspace_keeps_chart_column_dominant），\n'
     '        # 结果表在窄面板里靠横向滚动 + 省略号 + 工具提示呈现完整信息。\n'
+    '        # 侧栏收起时只剩 64px 轨道；展开时页面栈保证 300px 可用宽度\n'
     '        self.main_splitter.setSizes([430, 790])\n'
     '        self.main_splitter.setHandleWidth(2)\n'
-    '        sidebar_widget.setMinimumWidth(360)\n'
+    '        sidebar_widget.setMinimumWidth(76)\n'
     '        center_widget.setMinimumWidth(500)\n'
     '\n'
     '        main_layout.addWidget(self.main_splitter, 1)\n'
@@ -13196,6 +13198,11 @@ _MODULE_SOURCES['ui.main_window'] = (
     '        self.status_bar = QStatusBar()\n'
     '        self.setStatusBar(self.status_bar)\n'
     "        self._set_running_state(False, '准备就绪')\n"
+    '\n'
+    '        # 悬浮主题按钮挂在中央控件上（可拖动，随窗口缩放重新贴合）\n'
+    '        self.build_theme_button(central)\n'
+    '        self.theme_btn.raise_()\n'
+    '        self._reposition_theme_button()\n'
     '\n'
     '    def build_sidebar(self, parent):\n'
     '        """图标导航侧边栏：窄轨道 + 页面栈（数据/参数/结果/日志）。\n'
@@ -13218,10 +13225,13 @@ _MODULE_SOURCES['ui.main_window'] = (
     '        self.sidebar_stack = QStackedWidget()\n'
     "        self.sidebar_stack.setObjectName('sidebarPages')\n"
     "        self.sidebar_stack.setAccessibleName('侧边栏页面')\n"
+    '        self.sidebar_stack.setMinimumWidth(300)\n'
     '\n'
     '        self._nav_group = QButtonGroup(self)\n'
     '        self._nav_group.setExclusive(True)\n'
     '        self._sidebar_page_index = {}\n'
+    '        self._sidebar_expanded = True\n'
+    '        self._sidebar_expanded_width = 430\n'
     '        self._nav_shortcuts = []\n'
     '        for position, (key, label, icon_kind) in enumerate(SIDEBAR_PAGES):\n'
     '            page = QWidget()\n'
@@ -13245,23 +13255,58 @@ _MODULE_SOURCES['ui.main_window'] = (
     '            nav_button.setCheckable(True)\n'
     '            nav_button.setAutoRaise(True)\n'
     "            nav_button.setProperty('role', 'navRailButton')\n"
-    "            nav_button.setToolTip(f'切换到「{label}」页 (Ctrl+{position + 1})')\n"
+    '            nav_button.setToolTip(\n'
+    "                f'「{label}」页 (Ctrl+{position + 1})；再次点击当前页可收起侧边栏')\n"
     "            nav_button.setAccessibleName(f'{label}页导航')\n"
     '            self._nav_group.addButton(nav_button, index)\n'
     '            rail_layout.addWidget(nav_button)\n'
     '\n'
     "            shortcut = QShortcut(QKeySequence(f'Ctrl+{position + 1}'), self)\n"
     '            shortcut.activated.connect(\n'
-    '                lambda idx=index: self.sidebar_stack.setCurrentIndex(idx))\n'
+    '                lambda idx=index: self._set_sidebar_index(idx))\n'
     '            self._nav_shortcuts.append(shortcut)\n'
     '\n'
     '        rail_layout.addStretch(1)\n'
-    '        self._nav_group.idClicked.connect(self.sidebar_stack.setCurrentIndex)\n'
+    '        self._nav_group.idClicked.connect(self._on_nav_clicked)\n'
     '        self.sidebar_stack.currentChanged.connect(self._sync_nav_buttons)\n'
     '        self._nav_group.button(0).setChecked(True)\n'
     '\n'
     '        layout.addWidget(rail)\n'
     '        layout.addWidget(self.sidebar_stack, 1)\n'
+    '\n'
+    '    def _on_nav_clicked(self, index):\n'
+    '        """点击轨道按钮：已展开时点当前页收起、点其他页切换；收起时展开。"""\n'
+    '        if not self._sidebar_expanded:\n'
+    '            self._set_sidebar_index(index)\n'
+    '        elif self.sidebar_stack.currentIndex() == index:\n'
+    '            self._collapse_sidebar()\n'
+    '        else:\n'
+    '            self.sidebar_stack.setCurrentIndex(index)\n'
+    '\n'
+    '    def _collapse_sidebar(self):\n'
+    '        """收起页面栈，只留 64px 轨道；空出的宽度交给图表区。"""\n'
+    '        self._sidebar_expanded = False\n'
+    '        sizes = self.main_splitter.sizes()\n'
+    '        if sizes:\n'
+    '            self._sidebar_expanded_width = max(\n'
+    '                sizes[0], self.sidebar_stack.minimumWidth())\n'
+    '        self.sidebar_stack.setVisible(False)\n'
+    '        total = sum(sizes) or (self.width() - 40)\n'
+    '        rail_width = 76\n'
+    '        self.main_splitter.setSizes(\n'
+    '            [rail_width, max(total - rail_width, 500)])\n'
+    '\n'
+    '    def _set_sidebar_index(self, index):\n'
+    '        was_collapsed = not self._sidebar_expanded\n'
+    '        self._sidebar_expanded = True\n'
+    '        self.sidebar_stack.setVisible(True)\n'
+    '        self.sidebar_stack.setCurrentIndex(index)\n'
+    '        if was_collapsed:\n'
+    '            sizes = self.main_splitter.sizes()\n'
+    '            total = sum(sizes) or (self.width() - 40)\n'
+    "            width = getattr(self, '_sidebar_expanded_width', 430)\n"
+    '            self.main_splitter.setSizes(\n'
+    '                [width, max(total - width, 500)])\n'
     '\n'
     '    def _sync_nav_buttons(self, index):\n'
     '        button = self._nav_group.button(index)\n'
@@ -13271,7 +13316,7 @@ _MODULE_SOURCES['ui.main_window'] = (
     '    def _show_sidebar_page(self, key):\n'
     '        index = self._sidebar_page_index.get(key)\n'
     '        if index is not None:\n'
-    '            self.sidebar_stack.setCurrentIndex(index)\n'
+    '            self._set_sidebar_index(index)\n'
     '\n'
     '    def build_data_page(self, parent):\n'
     '        layout = QVBoxLayout(parent)\n'
@@ -13341,8 +13386,8 @@ _MODULE_SOURCES['ui.main_window'] = (
     '\n'
     '        source_group.setLayout(source_layout)\n'
     '\n'
-    '        layout.addWidget(file_group, 1)\n'
     '        layout.addWidget(source_group, 0, Qt.AlignmentFlag.AlignTop)\n'
+    '        layout.addWidget(file_group, 1)\n'
     '\n'
     '    def build_params_page(self, parent):\n'
     '        layout = QVBoxLayout(parent)\n'
@@ -13365,7 +13410,7 @@ _MODULE_SOURCES['ui.main_window'] = (
     '        self.step_section.form_layout.addRow(\n'
     "            '放电工步:', self.discharge_step_input)\n"
     '\n'
-    "        battery_section = CollapsibleSection('电池与失效判据')\n"
+    "        battery_section = CollapsibleSection('电池容量与失效判据')\n"
     "        evaluation_section = CollapsibleSection('评估与验证')\n"
     "        advanced_section = CollapsibleSection('模型高级参数', expanded=False)\n"
     '        param_layout.addWidget(self.step_section)\n'
@@ -13426,6 +13471,21 @@ _MODULE_SOURCES['ui.main_window'] = (
     "                 ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF'])\n"
     '\n'
     '        # ---- 多特征输入（A5）：默认只用容量，勾选后启用 HI 特征 ----\n'
+    '        # 标题与说明占通栏一行，说明紧贴“输入特征”字样下方，复选框另起一行\n'
+    '        feature_header = QWidget()\n'
+    '        header_layout = QVBoxLayout(feature_header)\n'
+    '        header_layout.setContentsMargins(0, 0, 0, 2)\n'
+    '        header_layout.setSpacing(2)\n'
+    "        header_layout.addWidget(QLabel('输入特征'))\n"
+    '        self._feature_hint = QLabel(\n'
+    "            '默认只用容量（纯自回归）。勾选 dq_v / CCCT / CVCT / 内阻后'\n"
+    "            '启用多特征输入；dq_v 是电压窗口内的放电容量（健康指标 HI），'\n"
+    "            '不是 SOH。')\n"
+    "        self._feature_hint.setProperty('role', 'muted')\n"
+    '        self._feature_hint.setWordWrap(True)\n'
+    '        header_layout.addWidget(self._feature_hint)\n'
+    '        evaluation_section.form_layout.addRow(feature_header)\n'
+    '\n'
     '        feature_widget = QWidget()\n'
     '        feature_layout = QVBoxLayout(feature_widget)\n'
     '        feature_layout.setContentsMargins(0, 0, 0, 0)\n'
@@ -13443,15 +13503,11 @@ _MODULE_SOURCES['ui.main_window'] = (
     "                    '注意：递归预测时非容量通道保持窗口末值。')\n"
     '            self.feature_checks[name] = checkbox\n'
     '            feature_layout.addWidget(checkbox)\n'
-    "        _add_row(evaluation_section, '输入特征', feature_widget,\n"
-    "                 ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF'])\n"
-    '        self._feature_hint = QLabel(\n'
-    "            '默认只用容量（纯自回归）。勾选 dq_v / CCCT / CVCT / 内阻后'\n"
-    "            '启用多特征输入；dq_v 是电压窗口内的放电容量（健康指标 HI），'\n"
-    "            '不是 SOH。')\n"
-    "        self._feature_hint.setProperty('role', 'muted')\n"
-    '        self._feature_hint.setWordWrap(True)\n'
-    "        evaluation_section.form_layout.addRow('', self._feature_hint)\n"
+    '        feature_label = QLabel()\n'
+    '        evaluation_section.form_layout.addRow(feature_label, feature_widget)\n'
+    "        all_modes = ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF']\n"
+    '        self._param_rows.append((feature_header, feature_widget, all_modes))\n'
+    '        self._param_rows.append((feature_label, feature_widget, all_modes))\n'
     '\n'
     '        # ---- RNN/LSTM/GRU 专用 ----\n'
     '        self.hidden_dim_spin = QSpinBox()\n'
@@ -13486,8 +13542,18 @@ _MODULE_SOURCES['ui.main_window'] = (
     '        self.n_seeds_spin.setRange(1, 20)\n'
     '        self.n_seeds_spin.setValue(5)\n'
     '        self.n_seeds_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)\n'
-    "        _add_row(evaluation_section, '多种子数(置信区间)', self.n_seeds_spin,\n"
-    "                 ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF'])\n"
+    '        # “置信区间”作为第二行小字放在标签下方，标签列更窄、排版更紧凑\n'
+    '        n_seeds_label = QWidget()\n'
+    '        n_seeds_label_layout = QVBoxLayout(n_seeds_label)\n'
+    '        n_seeds_label_layout.setContentsMargins(0, 0, 0, 0)\n'
+    '        n_seeds_label_layout.setSpacing(0)\n'
+    "        n_seeds_label_layout.addWidget(QLabel('多种子数'))\n"
+    "        n_seeds_sub_label = QLabel('置信区间')\n"
+    "        n_seeds_sub_label.setProperty('role', 'muted')\n"
+    '        n_seeds_label_layout.addWidget(n_seeds_sub_label)\n'
+    '        evaluation_section.form_layout.addRow(n_seeds_label, self.n_seeds_spin)\n'
+    '        self._param_rows.append((n_seeds_label, self.n_seeds_spin,\n'
+    "                                 ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF']))\n"
     '\n'
     '        # ---- XGBoost 专用 ----\n'
     '        self.xgb_n_estimators_spin = QSpinBox()\n'

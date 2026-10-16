@@ -57,30 +57,29 @@ class ThemeToggleAndFontTests(unittest.TestCase):
         self.assertEqual(THEME_UI.get("dark"), "墨夜（深色）")
         self.assertEqual(THEME_UI.get("light"), "宣纸（浅色）")
 
-    def test_theme_toggle_button_sits_in_the_top_right(self):
-        from PyQt6.QtWidgets import QFrame
+    def test_theme_toggle_is_a_draggable_floating_round_button(self):
+        from PyQt6.QtWidgets import QPushButton
 
         from ui.main_window import MainWindow
 
         window = MainWindow()
         try:
             self.assertTrue(hasattr(window, "theme_btn"))
-            bar = window.theme_btn.parentWidget()
-            self.assertIsInstance(bar, QFrame)
-            self.assertEqual(bar.property("role"), "topBar")
-            self.assertEqual(window.theme_btn.objectName(), "themeToggle")
-            # 顶部条必须在整个工作区之前（也就是视觉上的最上端）
-            layout = window.centralWidget().layout()
-            self.assertIs(layout.itemAt(0).widget(), bar)
-            # 按钮靠右：顶部条里在它之前必须有一个 addStretch 产生的弹簧，
-            # 且它是最后一个控件（结构上的右对齐，不依赖尚未完成布局的几何）。
-            bar_layout = bar.layout()
-            items = [bar_layout.itemAt(i) for i in range(bar_layout.count())]
-            self.assertTrue(any(item.spacerItem() is not None
-                                for item in items), '顶部条缺少弹簧，按钮不会靠右')
-            last_widget = [item.widget() for item in items
-                           if item.widget() is not None][-1]
-            self.assertIs(last_widget, window.theme_btn)
+            button = window.theme_btn
+            self.assertIsInstance(button, QPushButton)
+            self.assertEqual(button.objectName(), "floatingTheme")
+            # 圆形：宽高相等，且没有文字（只保留主题图标）
+            self.assertEqual(button.width(), button.height())
+            self.assertEqual(button.text(), "")
+            self.assertFalse(button.icon().isNull(), "按钮必须带主题图标")
+            # 悬浮：直接挂在中央控件上，而不是某个固定顶栏里
+            self.assertIs(button.parent(), window.centralWidget())
+            # 可拖动：类里实现了拖动三件套
+            source = (ROOT / "ui" / "floating_theme_button.py").read_text(
+                encoding="utf-8")
+            for marker in ("def mousePressEvent", "def mouseMoveEvent",
+                           "def mouseReleaseEvent", "_DRAG_THRESHOLD"):
+                self.assertIn(marker, source)
         finally:
             self._dispose(window)
 
@@ -91,10 +90,8 @@ class ThemeToggleAndFontTests(unittest.TestCase):
         try:
             window.apply_theme("dark")
             self.assertEqual(window._theme_mode, "dark")
-            self.assertIn("墨夜", window.theme_btn.text())
             window.toggle_theme()
             self.assertEqual(window._theme_mode, "light")
-            self.assertIn("宣纸", window.theme_btn.text())
             window.toggle_theme()
             self.assertEqual(window._theme_mode, "dark")
         finally:
@@ -362,7 +359,7 @@ class UiDesignContractTests(unittest.TestCase):
 
     def test_parameters_are_grouped_and_advanced_section_is_collapsible(self):
         self.assertIn("class CollapsibleSection", self.main_window)
-        self.assertIn("电池与失效判据", self.main_window)
+        self.assertIn("电池容量与失效判据", self.main_window)
         self.assertIn("评估与验证", self.main_window)
         self.assertIn("模型高级参数", self.main_window)
         self.assertIn("expanded=False", self.main_window)

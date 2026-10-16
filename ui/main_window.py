@@ -25,6 +25,7 @@ from PyQt6.QtGui import (
 from ui.chart_show import MplCanvas, CustomToolbar, apply_sup_sub
 from ui.worker import EvalWorker
 from ui.animated_button import AnimatedButton
+from ui.floating_theme_button import FloatingThemeButton
 from ui.style import apply_theme, theme_tokens
 from ui.result_model import (
     COLUMNS,
@@ -522,53 +523,34 @@ class MainWindow(QMainWindow):
         save_geometry(self)          # U4：记住窗口几何
         super().closeEvent(event)
 
-    def build_top_bar(self):
-        """右上顶角的主题切换按钮（C5 / U8）。
+    def build_theme_button(self, parent):
+        """右上角悬浮的圆形主题切换按钮（可拖动，替代原顶部条）。
 
-        默认深色（墨夜）。按钮同时带**图标 + 文字**描述当前目标主题，
-        不只靠颜色区分状态（U6 的无障碍要求）。
+        原来它和标题一起占了一整行顶栏（图二），现在只保留一个圆形图标按钮，
+        悬浮在内容之上、可自由拖动，位置按窗口比例记住。
         """
-        bar = QFrame()
-        bar.setObjectName('topBar')
-        bar.setProperty('role', 'topBar')
-        bar.setFixedHeight(44)
-
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(12, 4, 8, 4)
-        layout.setSpacing(10)
-
-        title = QLabel('Battery SOH Assessment System')
-        title.setProperty('role', 'topBarTitle')
-        layout.addWidget(title)
-
-        subtitle = QLabel('电池健康状态评估 · Research Preview')
-        subtitle.setProperty('role', 'topBarSubtitle')
-        layout.addWidget(subtitle)
-        layout.addStretch(1)
-
-        self.theme_btn = AnimatedButton('', 'ghost')
-        self.theme_btn.setObjectName('themeToggle')
-        self.theme_btn.setAccessibleName('切换浅色或深色主题')
-        self.theme_btn.setMinimumWidth(132)
+        self.theme_btn = FloatingThemeButton(parent)
         self.theme_btn.clicked.connect(self.toggle_theme)
-        layout.addWidget(self.theme_btn)
         self._sync_theme_button()
-        return bar
+        return self.theme_btn
 
     def _sync_theme_button(self):
-        """让按钮文案反映**当前**主题与**点击后**会切到的主题。"""
+        """让按钮图标反映**点击后**会切到的主题（当前深色→显示太阳）。"""
         button = getattr(self, 'theme_btn', None)
         if button is None:
             return
-        if self._theme_mode == 'dark':
-            button.setText('🌙 墨夜（深色）')
-            target = '宣纸（浅色）'
-        else:
-            button.setText('☀ 宣纸（浅色）')
-            target = '墨夜（深色）'
-        button.setToolTip(
-            f'当前：{THEME_UI.get(self._theme_mode, self._theme_mode)}；'
-            f'点击切换到{target}（Ctrl+T）')
+        button.sync_to_theme(self._theme_mode)
+
+    def _reposition_theme_button(self):
+        """窗口尺寸变化时，按保存的比例重新贴合悬浮按钮。"""
+        button = getattr(self, 'theme_btn', None)
+        if button is None:
+            return
+        button.restore_or_default_position()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._reposition_theme_button()
 
     def init_ui(self):
         # 先应用主题（必须在控件创建前）
@@ -582,9 +564,6 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(10, 10, 10, 8)
         main_layout.setSpacing(8)
         central.setLayout(main_layout)
-
-        # ── 顶部条：左侧应用名，右侧主题切换（右上顶角） ──
-        main_layout.addWidget(self.build_top_bar())
 
         # 图标导航侧边栏（数据/参数/结果/日志）+ 中央图表工作区
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -615,6 +594,11 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self._set_running_state(False, '准备就绪')
 
+        # 悬浮主题按钮挂在中央控件上（可拖动，随窗口缩放重新贴合）
+        self.build_theme_button(central)
+        self.theme_btn.raise_()
+        self._reposition_theme_button()
+
     def build_sidebar(self, parent):
         """图标导航侧边栏：窄轨道 + 页面栈（数据/参数/结果/日志）。
 
@@ -642,6 +626,7 @@ class MainWindow(QMainWindow):
         self._nav_group.setExclusive(True)
         self._sidebar_page_index = {}
         self._sidebar_expanded = True
+        self._sidebar_expanded_width = 430
         self._nav_shortcuts = []
         for position, (key, label, icon_kind) in enumerate(SIDEBAR_PAGES):
             page = QWidget()
@@ -689,15 +674,34 @@ class MainWindow(QMainWindow):
         if not self._sidebar_expanded:
             self._set_sidebar_index(index)
         elif self.sidebar_stack.currentIndex() == index:
-            self._sidebar_expanded = False
-            self.sidebar_stack.setVisible(False)
+            self._collapse_sidebar()
         else:
             self.sidebar_stack.setCurrentIndex(index)
 
+    def _collapse_sidebar(self):
+        """收起页面栈，只留 64px 轨道；空出的宽度交给图表区。"""
+        self._sidebar_expanded = False
+        sizes = self.main_splitter.sizes()
+        if sizes:
+            self._sidebar_expanded_width = max(
+                sizes[0], self.sidebar_stack.minimumWidth())
+        self.sidebar_stack.setVisible(False)
+        total = sum(sizes) or (self.width() - 40)
+        rail_width = 76
+        self.main_splitter.setSizes(
+            [rail_width, max(total - rail_width, 500)])
+
     def _set_sidebar_index(self, index):
+        was_collapsed = not self._sidebar_expanded
         self._sidebar_expanded = True
         self.sidebar_stack.setVisible(True)
         self.sidebar_stack.setCurrentIndex(index)
+        if was_collapsed:
+            sizes = self.main_splitter.sizes()
+            total = sum(sizes) or (self.width() - 40)
+            width = getattr(self, '_sidebar_expanded_width', 430)
+            self.main_splitter.setSizes(
+                [width, max(total - width, 500)])
 
     def _sync_nav_buttons(self, index):
         button = self._nav_group.button(index)

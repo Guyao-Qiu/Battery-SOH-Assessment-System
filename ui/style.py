@@ -94,39 +94,24 @@ QLabel[role="subtitle"] {{
     letter-spacing: 0.5px;
 }}
 
-/* ── 顶部条（右上顶角主题切换） ────────────────── */
-QFrame[role="topBar"] {{
-    background: {COLORS['bg_elevated']};
-    border: 1px solid {COLORS['border_soft']};
-    border-radius: 6px;
-}}
-QLabel[role="topBarTitle"] {{
-    {_font(11, 'bold')}
-    color: {COLORS['text']};
-    letter-spacing: 0.6px;
-}}
-QLabel[role="topBarSubtitle"] {{
-    {_font(9)}
-    color: {COLORS['text_dim']};
-    letter-spacing: 0.4px;
-}}
-QPushButton#themeToggle {{
-    {_font(9, 'bold')}
-    color: {COLORS['text']};
-    background: {COLORS['bg_surface']};
+/* ── 悬浮圆形主题按钮（右上角，可拖动） ─────────── */
+QPushButton[role="floatingTheme"] {{
+    background: {rgba(COLORS['bg_elevated'], 0.92)};
     border: 1px solid {COLORS['border']};
-    border-radius: 14px;
-    padding: 5px 14px;
+    border-radius: 20px;
+    padding: 0;
+    min-width: 0;
+    min-height: 0;
 }}
-QPushButton#themeToggle:hover {{
+QPushButton[role="floatingTheme"]:hover {{
     background: {COLORS['bg_hover']};
     border-color: {COLORS['primary']};
 }}
-QPushButton#themeToggle:pressed {{
+QPushButton[role="floatingTheme"]:pressed {{
     background: {COLORS['primary']};
-    color: {COLORS['on_accent']};
+    padding: 0;
 }}
-QPushButton#themeToggle:focus {{
+QPushButton[role="floatingTheme"]:focus {{
     border: 2px solid {COLORS['primary']};
 }}
 QLabel[role="metric"] {{
