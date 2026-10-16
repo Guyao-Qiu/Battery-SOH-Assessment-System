@@ -471,17 +471,14 @@ class UiDesignContractTests(unittest.TestCase):
         self.assertIn("def _configure_button_row", self.main_window)
         self.assertGreaterEqual(self.main_window.count("_configure_button_row("), 5)
 
-    def test_splitter_lines_stay_narrow_with_a_usable_left_hit_target(self):
+    def test_splitter_lines_stay_narrow_behind_a_nav_rail_sidebar(self):
         self.assertIn("self.main_splitter.setHandleWidth(2)", self.main_window)
-        self.assertIn("self.left_splitter.setHandleWidth(10)", self.main_window)
         self.assertIn("QSplitter::handle:horizontal {{ width: 2px; }}", self.style)
         self.assertIn("QSplitter::handle:vertical   {{ height: 2px; }}", self.style)
-        self.assertIn(
-            "QSplitter#leftPanelSplitter::handle:vertical {{",
-            self.style,
-        )
-        self.assertIn("stop: 0.40 {COLORS['border']}", self.style)
-        self.assertIn("stop: 0.60 {COLORS['border']}", self.style)
+        # 图标导航侧边栏：轨道按钮 + 页面栈取代旧的垂直分割条
+        self.assertIn('QToolButton[role="navRailButton"]', self.style)
+        self.assertIn("QStackedWidget", self.main_window)
+        self.assertIn("self.build_sidebar(", self.main_window)
 
     def test_folder_dialog_labels_are_localized(self):
         self.assertIn(

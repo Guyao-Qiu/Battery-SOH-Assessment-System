@@ -686,28 +686,6 @@ QSplitter::handle:vertical   {{ height: 2px; }}
 QSplitter::handle:hover {{
     background: {COLORS['primary']};
 }}
-QSplitter#leftPanelSplitter::handle:vertical {{
-    background: qlineargradient(
-        x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 transparent,
-        stop: 0.39 transparent,
-        stop: 0.40 {COLORS['border']},
-        stop: 0.60 {COLORS['border']},
-        stop: 0.61 transparent,
-        stop: 1 transparent
-    );
-}}
-QSplitter#leftPanelSplitter::handle:vertical:hover {{
-    background: qlineargradient(
-        x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 transparent,
-        stop: 0.39 transparent,
-        stop: 0.40 {COLORS['primary']},
-        stop: 0.60 {COLORS['primary']},
-        stop: 0.61 transparent,
-        stop: 1 transparent
-    );
-}}
 
 /* ── 滚动区 ───────────────────────────────────── */
 QScrollArea {{
@@ -802,6 +780,41 @@ QToolButton[role="sectionToggle"]:hover {{
 }}
 QToolButton[role="sectionToggle"]:focus {{
     border: 2px solid {COLORS['primary']};
+}}
+
+/* ── 图标导航侧边栏 ───────────────────────────── */
+QFrame[role="navRail"] {{
+    background: {COLORS['bg_elevated']};
+    border: 1px solid {COLORS['border_soft']};
+    border-radius: 6px;
+}}
+QToolButton[role="navRailButton"] {{
+    {_font(8, '600')}
+    color: {COLORS['text_muted']};
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 6px 2px;
+    margin: 0;
+}}
+QToolButton[role="navRailButton"]:hover {{
+    color: {COLORS['primary_d']};
+    background: {COLORS['bg_hover']};
+    border-color: {COLORS['border_soft']};
+}}
+QToolButton[role="navRailButton"]:checked {{
+    color: {COLORS['primary_d']};
+    background: {rgba(COLORS['primary'], 0.12)};
+    border-color: {COLORS['primary_d']};
+}}
+QToolButton[role="navRailButton"]:focus {{
+    border: 2px solid {COLORS['primary']};
+}}
+QLabel[role="pageTitle"] {{
+    {_display_font(11, 'bold')}
+    color: {COLORS['text']};
+    letter-spacing: 0.6px;
+    padding: 2px 2px 4px 2px;
 }}
 
 /* ── 表单标签 ─────────────────────────────────── */

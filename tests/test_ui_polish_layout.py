@@ -20,19 +20,25 @@ class UiPolishLayoutTests(unittest.TestCase):
 
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_results_and_log_are_grouped_as_task_tabs(self):
+    def test_workspace_groups_panels_behind_a_nav_rail(self):
         from ui.main_window import MainWindow
 
         window = MainWindow()
         try:
-            self.assertTrue(
-                hasattr(window, "right_tabs"),
-                "右侧结果与日志应使用任务页签收拢视觉层级",
+            self.assertEqual(
+                window.sidebar_stack.count(),
+                4,
+                "数据/参数/结果/日志应合并为侧边栏页面栈",
             )
             self.assertEqual(
-                [window.right_tabs.tabText(index) for index in range(2)],
-                ["评估结果", "训练日志"],
+                window._sidebar_page_index,
+                {"data": 0, "params": 1, "result": 2, "log": 3},
             )
+            labels = [
+                window._nav_group.button(index).text()
+                for index in range(window.sidebar_stack.count())
+            ]
+            self.assertEqual(labels, ["数据", "参数", "结果", "日志"])
         finally:
             _dispose_window(window, self.app)
 
@@ -41,12 +47,12 @@ class UiPolishLayoutTests(unittest.TestCase):
 
         window = MainWindow()
         try:
-            window.right_tabs.setCurrentIndex(window.result_tab_index)
+            window._show_sidebar_page("result")
             window._set_running_state(True, "正在训练模型")
 
             self.assertEqual(
-                window.right_tabs.currentIndex(),
-                window.log_tab_index,
+                window.sidebar_stack.currentIndex(),
+                window._sidebar_page_index["log"],
             )
         finally:
             _dispose_window(window, self.app)
@@ -98,8 +104,8 @@ class UiPolishLayoutTests(unittest.TestCase):
             self.assertEqual(window.result_summary_metric.text(), "平均 RMSE 0.150000")
             self.assertIn("12.34 秒", window.result_summary_meta.text())
             self.assertEqual(
-                window.right_tabs.currentIndex(),
-                window.result_tab_index,
+                window.sidebar_stack.currentIndex(),
+                window._sidebar_page_index["result"],
             )
         finally:
             _dispose_window(window, self.app)
@@ -117,59 +123,33 @@ class UiPolishLayoutTests(unittest.TestCase):
             window.show()
             self.app.processEvents()
 
-            left, chart, right = window.main_splitter.sizes()
+            sidebar, chart = window.main_splitter.sizes()
             self.assertGreaterEqual(chart, 500)
-            self.assertGreater(chart, left)
-            self.assertGreater(chart, right)
-            self.assertLessEqual(right, 340)
+            self.assertGreater(chart, sidebar)
+            self.assertLessEqual(sidebar, 470)
+
         finally:
             _dispose_window(window, self.app)
 
-    def test_left_panel_splitter_has_a_usable_drag_target(self):
-        from PyQt6.QtCore import QPoint, Qt
-        from PyQt6.QtTest import QTest
-        from PyQt6.QtWidgets import QSplitter
-
+    def test_nav_rail_switches_pages_exclusively(self):
         from ui.main_window import MainWindow
 
         window = MainWindow()
         try:
-            window.resize(1600, 900)
-            window.show()
-            self.app.processEvents()
+            window._show_sidebar_page("params")
+            window._nav_group.button(
+                window._sidebar_page_index["log"]).click()
 
-            left_splitter = next(
-                splitter for splitter in window.findChildren(QSplitter)
-                if splitter.orientation() == Qt.Orientation.Vertical
+            self.assertEqual(
+                window.sidebar_stack.currentIndex(),
+                window._sidebar_page_index["log"],
+                "点击轨道按钮应切换页面栈",
             )
-            handles = [
-                left_splitter.handle(index)
-                for index in range(1, left_splitter.count())
+            checked = [
+                window._nav_group.button(index).isChecked()
+                for index in range(window.sidebar_stack.count())
             ]
-            for handle in handles:
-                self.assertGreaterEqual(
-                    handle.height(),
-                    10,
-                    "左侧面板分割线需要至少 10px 的垂直命中区域，不能只靠精确点中细线",
-                )
-
-            before = left_splitter.sizes()
-            handle = handles[0]
-            start = handle.rect().center()
-            QTest.mousePress(
-                handle, Qt.MouseButton.LeftButton, pos=start)
-            QTest.mouseMove(handle, start + QPoint(0, 48), delay=10)
-            QTest.mouseRelease(
-                handle, Qt.MouseButton.LeftButton,
-                pos=start + QPoint(0, 48),
-            )
-            self.app.processEvents()
-
-            self.assertNotEqual(
-                left_splitter.sizes(),
-                before,
-                "拖动左侧面板分割线后，面板高度应实际发生变化",
-            )
+            self.assertEqual(checked.count(True), 1, "轨道按钮应互斥")
         finally:
             _dispose_window(window, self.app)
 
@@ -280,12 +260,12 @@ class UiPolishLayoutTests(unittest.TestCase):
 
         window = MainWindow()
         try:
-            window.right_tabs.setCurrentIndex(window.log_tab_index)
+            window._show_sidebar_page("log")
             window._show_result_state("评估未完成", "请检查数据和参数。")
 
             self.assertEqual(
-                window.right_tabs.currentIndex(),
-                window.result_tab_index,
+                window.sidebar_stack.currentIndex(),
+                window._sidebar_page_index["result"],
             )
         finally:
             _dispose_window(window, self.app)
