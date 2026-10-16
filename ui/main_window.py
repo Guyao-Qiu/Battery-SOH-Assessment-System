@@ -8,7 +8,7 @@ import torch
 import numpy as np
 
 from PyQt6.QtCore import (
-    Qt, QTimer, QSignalBlocker, QSettings,
+    Qt, QTimer, QSignalBlocker, QSettings, QSize,
     QSortFilterProxyModel,
 )
 from PyQt6.QtWidgets import (
@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QSpinBox, QComboBox, QLineEdit, QMessageBox, QSizePolicy,
     QSplitter, QScrollArea, QAbstractSpinBox, QAbstractItemView, QProgressBar, QStatusBar,
     QDialog, QFrame, QToolButton, QTabWidget, QTableView, QHeaderView,
-    QPushButton, QCheckBox,
+    QPushButton, QCheckBox, QStackedWidget, QButtonGroup,
 )
 from PyQt6.QtGui import (
     QTextCursor, QShortcut, QKeySequence, QFontMetrics, QIntValidator,
@@ -66,6 +66,15 @@ from theme_tokens import DEFAULT_THEME, THEMES, THEME_SETTINGS_KEY
 #: 主题与窗口几何的持久化设置（U4 / C5）
 SETTINGS_ORG = 'BatterySOH'
 SETTINGS_APP = 'AssessmentSystem'
+
+#: 侧边栏页面定义：(键, 轨道按钮文案, 图标 kind)，顺序即页面顺序。
+#: 左右两栏合并成一个图标导航侧边栏后，数据/参数/结果/日志在此登记。
+SIDEBAR_PAGES = (
+    ('data', '数据', 'folder'),
+    ('params', '参数', 'settings'),
+    ('result', '结果', 'chart'),
+    ('log', '日志', 'log'),
+)
 
 
 def _settings():
@@ -577,42 +586,113 @@ class MainWindow(QMainWindow):
         # ── 顶部条：左侧应用名，右侧主题切换（右上顶角） ──
         main_layout.addWidget(self.build_top_bar())
 
+        # 图标导航侧边栏（数据/参数/结果/日志）+ 中央图表工作区
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        left_widget = QWidget()
+        sidebar_widget = QWidget()
         center_widget = QWidget()
-        right_widget = QWidget()
 
-        self.main_splitter.addWidget(left_widget)
+        self.main_splitter.addWidget(sidebar_widget)
         self.main_splitter.addWidget(center_widget)
-        self.main_splitter.addWidget(right_widget)
 
         self.main_splitter.setStretchFactor(0, 0)
         self.main_splitter.setStretchFactor(1, 1)
-        self.main_splitter.setStretchFactor(2, 0)
-        # 注意：右栏宽度受「最小窗口下图表仍占主导」的约束（见
+        # 侧栏宽度受「最小窗口下图表仍占主导」的约束（见
         # tests/test_ui_polish_layout.py::test_minimum_workspace_keeps_chart_column_dominant），
-        # 因此结果表在窄面板里靠横向滚动 + 省略号 + 工具提示呈现完整信息。
-        self.main_splitter.setSizes([285, 820, 315])
-        self.main_splitter.setMinimumWidth(100)
+        # 结果表在窄面板里靠横向滚动 + 省略号 + 工具提示呈现完整信息。
+        self.main_splitter.setSizes([430, 790])
         self.main_splitter.setHandleWidth(2)
-        left_widget.setMinimumWidth(280)
+        sidebar_widget.setMinimumWidth(360)
         center_widget.setMinimumWidth(500)
-        right_widget.setMinimumWidth(300)
 
         main_layout.addWidget(self.main_splitter, 1)
 
-        self.build_left_panel(left_widget)
+        self.build_sidebar(sidebar_widget)
         self.build_center_panel(center_widget)
-        self.build_right_panel(right_widget)
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self._set_running_state(False, '准备就绪')
 
-    def build_left_panel(self, parent):
+    def build_sidebar(self, parent):
+        """图标导航侧边栏：窄轨道 + 页面栈（数据/参数/结果/日志）。
+
+        左右两栏合并而来：轨道按钮负责切换页面，中央图表区不再与
+        结果/日志分享横向空间。Ctrl+1~4 为页面快捷键。
+        """
+        layout = QHBoxLayout(parent)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        rail = QFrame()
+        rail.setObjectName('navRail')
+        rail.setProperty('role', 'navRail')
+        rail.setFixedWidth(64)
+        rail_layout = QVBoxLayout(rail)
+        rail_layout.setContentsMargins(4, 8, 4, 8)
+        rail_layout.setSpacing(4)
+
+        self.sidebar_stack = QStackedWidget()
+        self.sidebar_stack.setObjectName('sidebarPages')
+        self.sidebar_stack.setAccessibleName('侧边栏页面')
+
+        self._nav_group = QButtonGroup(self)
+        self._nav_group.setExclusive(True)
+        self._sidebar_page_index = {}
+        self._nav_shortcuts = []
+        for position, (key, label, icon_kind) in enumerate(SIDEBAR_PAGES):
+            page = QWidget()
+            if key == 'data':
+                self.build_data_page(page)
+            elif key == 'params':
+                self.build_params_page(page)
+            elif key == 'result':
+                self.build_result_page(page)
+            else:
+                self.build_log_page(page)
+            index = self.sidebar_stack.addWidget(page)
+            self._sidebar_page_index[key] = index
+
+            nav_button = QToolButton()
+            nav_button.setText(label)
+            nav_button.setIcon(get_dialog_icon(icon_kind))
+            nav_button.setIconSize(QSize(24, 24))
+            nav_button.setToolButtonStyle(
+                Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            nav_button.setCheckable(True)
+            nav_button.setAutoRaise(True)
+            nav_button.setProperty('role', 'navRailButton')
+            nav_button.setToolTip(f'切换到「{label}」页 (Ctrl+{position + 1})')
+            nav_button.setAccessibleName(f'{label}页导航')
+            self._nav_group.addButton(nav_button, index)
+            rail_layout.addWidget(nav_button)
+
+            shortcut = QShortcut(QKeySequence(f'Ctrl+{position + 1}'), self)
+            shortcut.activated.connect(
+                lambda idx=index: self.sidebar_stack.setCurrentIndex(idx))
+            self._nav_shortcuts.append(shortcut)
+
+        rail_layout.addStretch(1)
+        self._nav_group.idClicked.connect(self.sidebar_stack.setCurrentIndex)
+        self.sidebar_stack.currentChanged.connect(self._sync_nav_buttons)
+        self._nav_group.button(0).setChecked(True)
+
+        layout.addWidget(rail)
+        layout.addWidget(self.sidebar_stack, 1)
+
+    def _sync_nav_buttons(self, index):
+        button = self._nav_group.button(index)
+        if button is not None:
+            button.setChecked(True)
+
+    def _show_sidebar_page(self, key):
+        index = self._sidebar_page_index.get(key)
+        if index is not None:
+            self.sidebar_stack.setCurrentIndex(index)
+
+    def build_data_page(self, parent):
         layout = QVBoxLayout(parent)
-        layout.setContentsMargins(0, 0, 6, 0)
+        layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(8)
 
         file_group = QGroupBox('文件导入')
@@ -677,6 +757,14 @@ class MainWindow(QMainWindow):
         source_layout.addRow('数据格式:', self.adapter_combo)
 
         source_group.setLayout(source_layout)
+
+        layout.addWidget(file_group, 1)
+        layout.addWidget(source_group, 0, Qt.AlignmentFlag.AlignTop)
+
+    def build_params_page(self, parent):
+        layout = QVBoxLayout(parent)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(8)
 
         param_group = QGroupBox('参数设置')
         param_layout = QVBoxLayout()
@@ -898,27 +986,14 @@ class MainWindow(QMainWindow):
         param_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         param_scroll.setWidget(param_group)
 
+        layout.addWidget(param_scroll, 1)
+
         self.help_btn = AnimatedButton('帮助', 'ghost')
         self.help_btn.setShortcut(QKeySequence('F1'))
         self.help_btn.setToolTip('查看当前模型参数说明 (F1)')
         self.help_btn.clicked.connect(self.show_help)
         self.help_btn.setMaximumWidth(80)
-        param_layout.addWidget(self.help_btn, 0, Qt.AlignmentFlag.AlignLeft)
-
-        # 左侧三个面板（文件导入 / 数据源 / 参数设置）统一用垂直 splitter 分隔
-        self.left_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.left_splitter.setObjectName('leftPanelSplitter')
-        self.left_splitter.addWidget(file_group)
-        self.left_splitter.addWidget(source_group)
-        self.left_splitter.addWidget(param_scroll)
-        self.left_splitter.setStretchFactor(0, 2)
-        self.left_splitter.setStretchFactor(1, 0)
-        self.left_splitter.setStretchFactor(2, 1)
-        self.left_splitter.setSizes([240, 80, 320])
-        # 10px 负责鼠标命中；样式仅在中间绘制 2px 分割线。
-        self.left_splitter.setHandleWidth(10)
-
-        layout.addWidget(self.left_splitter, 1)
+        layout.addWidget(self.help_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
         self._help_dialog = None
         self._update_param_panel('RNN')
@@ -1051,20 +1126,14 @@ class MainWindow(QMainWindow):
 
         self.select_mode('RNN')
 
-    def build_right_panel(self, parent):
+    def build_result_page(self, parent):
         layout = QVBoxLayout(parent)
-        layout.setContentsMargins(6, 0, 0, 0)
+        layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(8)
 
-        self.right_tabs = QTabWidget()
-        self.right_tabs.setObjectName('workspaceTabs')
-        self.right_tabs.setDocumentMode(True)
-        self.right_tabs.setAccessibleName('评估结果与训练日志')
-
-        result_page = QWidget()
-        result_layout = QVBoxLayout(result_page)
-        result_layout.setContentsMargins(8, 8, 8, 8)
-        result_layout.setSpacing(8)
+        title = QLabel('评估结果')
+        title.setProperty('role', 'pageTitle')
+        layout.addWidget(title)
 
         self.result_batch_bar = QFrame()
         self.result_batch_bar.setProperty('role', 'resultBatchBar')
@@ -1083,7 +1152,7 @@ class MainWindow(QMainWindow):
         batch_layout.addWidget(batch_label)
         batch_layout.addWidget(self.result_batch_combo, 1)
         self.result_batch_bar.setVisible(False)
-        result_layout.addWidget(self.result_batch_bar)
+        layout.addWidget(self.result_batch_bar)
 
         self.result_summary = QFrame()
         self.result_summary.setProperty('role', 'resultSummary')
@@ -1105,7 +1174,7 @@ class MainWindow(QMainWindow):
         summary_layout.addLayout(summary_top)
         summary_layout.addWidget(self.result_summary_meta)
         self.result_summary.setVisible(False)
-        result_layout.addWidget(self.result_summary)
+        layout.addWidget(self.result_summary)
 
         self.result_scroll = QScrollArea()
         self.result_scroll.setWidgetResizable(True)
@@ -1184,7 +1253,7 @@ class MainWindow(QMainWindow):
             '导入数据并开始评估后，这里会显示滚动起点的 RMSE、'
             'RUL 误差与相对平推的技能分。')
 
-        result_layout.addWidget(self.result_scroll)
+        layout.addWidget(self.result_scroll)
 
         op_layout = QHBoxLayout()
         self.pause_btn = AnimatedButton('停止', 'danger')
@@ -1202,23 +1271,26 @@ class MainWindow(QMainWindow):
 
         _configure_button_row(
             op_layout, (self.pause_btn, self.save_chart_btn, self.export_btn))
-        result_layout.addLayout(op_layout)
+        layout.addLayout(op_layout)
 
-        log_page = QWidget()
-        log_layout = QVBoxLayout(log_page)
-        log_layout.setContentsMargins(8, 8, 8, 8)
+    def build_log_page(self, parent):
+        layout = QVBoxLayout(parent)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(8)
+
+        title = QLabel('训练日志')
+        title.setProperty('role', 'pageTitle')
+        layout.addWidget(title)
+
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        log_layout.addWidget(self.log_text)
-
-        self.result_tab_index = self.right_tabs.addTab(result_page, '评估结果')
-        self.log_tab_index = self.right_tabs.addTab(log_page, '训练日志')
-        layout.addWidget(self.right_tabs)
+        self.log_text.setAccessibleName('训练日志')
+        layout.addWidget(self.log_text)
 
     def _set_running_state(self, running, message):
         """同步主操作、停止按钮、进度和状态文字。"""
         if running:
-            self.right_tabs.setCurrentIndex(self.log_tab_index)
+            self._show_sidebar_page('log')
         locked_controls = [
             self.import_btn, self.import_dir_btn, self.import_json_btn,
             self.delete_btn, self.import_list,
@@ -1667,7 +1739,7 @@ class MainWindow(QMainWindow):
                 self.append_log('评估已在安全检查点停止。')
                 self._set_running_state(False, '评估已停止')
                 if self._result_batches:
-                    self.right_tabs.setCurrentIndex(self.result_tab_index)
+                    self._show_sidebar_page('result')
                 else:
                     self._show_result_state(
                         '评估已停止', '参数和导入数据均已保留，可调整后重新开始。')
@@ -2119,7 +2191,7 @@ class MainWindow(QMainWindow):
         self._active_run_snapshot = None
         self._active_run_kind = None
         if self._result_batches:
-            self.right_tabs.setCurrentIndex(self.log_tab_index)
+            self._show_sidebar_page('log')
         else:
             self._show_result_state(
                 '评估未完成', '请根据弹窗或训练日志中的提示检查数据和参数。')
@@ -2302,7 +2374,7 @@ class MainWindow(QMainWindow):
                 self._eval_threshold_ratio,
             )
         self.export_btn.setEnabled(True)
-        self.right_tabs.setCurrentIndex(self.result_tab_index)
+        self._show_sidebar_page('result')
 
     def _show_result_state(self, title, detail):
         """在结果区呈现空、加载、停止或错误状态。
@@ -2313,8 +2385,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'result_summary'):
             self.result_summary.setVisible(False)
         if (not title.startswith('正在') and
-                hasattr(self, 'result_tab_index')):
-            self.right_tabs.setCurrentIndex(self.result_tab_index)
+                hasattr(self, 'sidebar_stack')):
+            self._show_sidebar_page('result')
         self._last_detail_list = []
         if hasattr(self, 'result_model'):
             self.result_model.set_rows([])
@@ -2461,7 +2533,7 @@ class MainWindow(QMainWindow):
         )
         self.result_model.set_tokens(theme_tokens(self._theme_mode))
         self.result_model.set_rows(rows)
-        # 列宽在 build_right_panel 里显式设定；这里不再 resizeColumnsToContents，
+        # 列宽在 build_result_page 里显式设定；这里不再 resizeColumnsToContents，
         # 否则汇总行的长文本会把列撑宽、把前排的指标挤出可视区。
 
         summary = summary_row(rows)
@@ -2589,4 +2661,4 @@ class MainWindow(QMainWindow):
             f'{self.result_summary_metric.text()}，'
             f'{self.result_summary_meta.text()}')
         self.result_summary.setVisible(True)
-        self.right_tabs.setCurrentIndex(self.result_tab_index)
+        self._show_sidebar_page('result')
