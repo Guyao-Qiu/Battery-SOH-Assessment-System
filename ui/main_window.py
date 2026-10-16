@@ -600,9 +600,10 @@ class MainWindow(QMainWindow):
         # 侧栏宽度受「最小窗口下图表仍占主导」的约束（见
         # tests/test_ui_polish_layout.py::test_minimum_workspace_keeps_chart_column_dominant），
         # 结果表在窄面板里靠横向滚动 + 省略号 + 工具提示呈现完整信息。
+        # 侧栏收起时只剩 64px 轨道；展开时页面栈保证 300px 可用宽度
         self.main_splitter.setSizes([430, 790])
         self.main_splitter.setHandleWidth(2)
-        sidebar_widget.setMinimumWidth(360)
+        sidebar_widget.setMinimumWidth(76)
         center_widget.setMinimumWidth(500)
 
         main_layout.addWidget(self.main_splitter, 1)
@@ -635,10 +636,12 @@ class MainWindow(QMainWindow):
         self.sidebar_stack = QStackedWidget()
         self.sidebar_stack.setObjectName('sidebarPages')
         self.sidebar_stack.setAccessibleName('侧边栏页面')
+        self.sidebar_stack.setMinimumWidth(300)
 
         self._nav_group = QButtonGroup(self)
         self._nav_group.setExclusive(True)
         self._sidebar_page_index = {}
+        self._sidebar_expanded = True
         self._nav_shortcuts = []
         for position, (key, label, icon_kind) in enumerate(SIDEBAR_PAGES):
             page = QWidget()
@@ -662,23 +665,39 @@ class MainWindow(QMainWindow):
             nav_button.setCheckable(True)
             nav_button.setAutoRaise(True)
             nav_button.setProperty('role', 'navRailButton')
-            nav_button.setToolTip(f'切换到「{label}」页 (Ctrl+{position + 1})')
+            nav_button.setToolTip(
+                f'「{label}」页 (Ctrl+{position + 1})；再次点击当前页可收起侧边栏')
             nav_button.setAccessibleName(f'{label}页导航')
             self._nav_group.addButton(nav_button, index)
             rail_layout.addWidget(nav_button)
 
             shortcut = QShortcut(QKeySequence(f'Ctrl+{position + 1}'), self)
             shortcut.activated.connect(
-                lambda idx=index: self.sidebar_stack.setCurrentIndex(idx))
+                lambda idx=index: self._set_sidebar_index(idx))
             self._nav_shortcuts.append(shortcut)
 
         rail_layout.addStretch(1)
-        self._nav_group.idClicked.connect(self.sidebar_stack.setCurrentIndex)
+        self._nav_group.idClicked.connect(self._on_nav_clicked)
         self.sidebar_stack.currentChanged.connect(self._sync_nav_buttons)
         self._nav_group.button(0).setChecked(True)
 
         layout.addWidget(rail)
         layout.addWidget(self.sidebar_stack, 1)
+
+    def _on_nav_clicked(self, index):
+        """点击轨道按钮：已展开时点当前页收起、点其他页切换；收起时展开。"""
+        if not self._sidebar_expanded:
+            self._set_sidebar_index(index)
+        elif self.sidebar_stack.currentIndex() == index:
+            self._sidebar_expanded = False
+            self.sidebar_stack.setVisible(False)
+        else:
+            self.sidebar_stack.setCurrentIndex(index)
+
+    def _set_sidebar_index(self, index):
+        self._sidebar_expanded = True
+        self.sidebar_stack.setVisible(True)
+        self.sidebar_stack.setCurrentIndex(index)
 
     def _sync_nav_buttons(self, index):
         button = self._nav_group.button(index)
@@ -688,7 +707,7 @@ class MainWindow(QMainWindow):
     def _show_sidebar_page(self, key):
         index = self._sidebar_page_index.get(key)
         if index is not None:
-            self.sidebar_stack.setCurrentIndex(index)
+            self._set_sidebar_index(index)
 
     def build_data_page(self, parent):
         layout = QVBoxLayout(parent)
