@@ -8,6 +8,7 @@
     但保持低饱和度，避免抢眼
   - 同一图标仅生成一次并缓存，重复调用零开销
 """
+import math
 import sys
 
 from PyQt6.QtCore import Qt, QRectF, QPointF, QSize
@@ -308,6 +309,38 @@ def _draw_log(p, s, accent):
     _accent_dot(p, accent, s - 7, 7)
 
 
+def _draw_moon(p, s, accent):
+    """月亮 — 月牙（大圆挖去偏移圆），用于深色主题（墨夜）。"""
+    path = QPainterPath()
+    path.addEllipse(QPointF(s * 0.50, s * 0.50), s * 0.30, s * 0.30)
+    cut = QPainterPath()
+    cut.addEllipse(QPointF(s * 0.64, s * 0.38), s * 0.28, s * 0.28)
+    crescent = path.subtracted(cut)
+    p.save()
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(_color(_LINE_COLOR_KEY))
+    p.drawPath(crescent)
+    p.restore()
+    _accent_dot(p, accent, s - 7, 7)
+
+
+def _draw_sun(p, s, accent):
+    """太阳 — 圆 + 八条射线，用于浅色主题（宣纸）。"""
+    cx, cy = s / 2, s / 2
+    r = s * 0.19
+    p.drawEllipse(QPointF(cx, cy), r, r)
+    for index in range(8):
+        angle = index * math.pi / 4
+        inner, outer = r * 1.55, r * 2.15
+        p.drawLine(
+            QPointF(cx + math.cos(angle) * inner,
+                    cy + math.sin(angle) * inner),
+            QPointF(cx + math.cos(angle) * outer,
+                    cy + math.sin(angle) * outer),
+        )
+    _accent_dot(p, accent, s - 7, 7)
+
+
 def _draw_folder(p, s, accent):
     """文件夹 — 经典文件柜造型。"""
     m = s * 0.18
@@ -571,6 +604,8 @@ _DIALOG_DRAW_FUNCS = {
     'chart':       _draw_chart,
     'settings':    _draw_settings,
     'log':         _draw_log,
+    'moon':        _draw_moon,
+    'sun':         _draw_sun,
     'model':       _draw_model,
     'import':      _draw_import,
     'export':      _draw_export,
@@ -595,6 +630,8 @@ _ACCENT_FOR_KIND = {
     'chart':       _ACCENT_INFO_D,
     'settings':    _ACCENT_INFO,
     'log':         _ACCENT_INFO,
+    'moon':        None,
+    'sun':         None,
     'model':       _ACCENT_MODEL,
     'import':      _ACCENT_INFO,
     'export':      _ACCENT_SUCCESS,

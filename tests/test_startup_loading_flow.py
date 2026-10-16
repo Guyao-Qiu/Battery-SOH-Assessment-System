@@ -102,9 +102,8 @@ class EvaluationStartupFlowTests(unittest.TestCase):
         window = MainWindow()
         try:
             central_layout = window.centralWidget().layout()
-            # 顶部条（应用名 + 右上角主题切换）是唯一额外的一行；
-            # 工作区本身必须直接是「导航侧边栏 + 图表区」分栏，
-            # 而不是落地页 / 向导。
+            # 工作区必须直接是「导航侧边栏 + 图表区」分栏，
+            # 而不是落地页 / 向导；原先承载主题按钮的顶栏已移除。
             widgets = [
                 central_layout.itemAt(index).widget()
                 for index in range(central_layout.count())
@@ -112,18 +111,19 @@ class EvaluationStartupFlowTests(unittest.TestCase):
             splitters = [w for w in widgets if isinstance(w, QSplitter)]
             self.assertEqual(len(splitters), 1)
             self.assertIs(splitters[0], window.main_splitter)
-            self.assertIs(widgets[-1], window.main_splitter)
+            self.assertIs(widgets[0], window.main_splitter)
             self.assertEqual(window.main_splitter.count(), 2)
             # 侧边栏 = 窄轨道 + 页面栈（数据/参数/结果/日志）
             self.assertEqual(window.sidebar_stack.count(), 4)
-            # 新增的顶部条承载右上角主题按钮（U8）
+            # 主题按钮改为悬浮在中央控件上的圆形按钮（不再占一行顶栏）
             self.assertTrue(hasattr(window, 'theme_btn'))
-            self.assertIsNotNone(window.theme_btn.parent())
+            self.assertIs(window.theme_btn.parent(), window.centralWidget())
             self.assertFalse(hasattr(window, "workspace_header"))
             roles = {
                 label.property("role") for label in window.findChildren(QLabel)
             }
             self.assertNotIn("workflowStep", roles)
+            self.assertNotIn("topBarTitle", roles)
         finally:
             _dispose_window(window, self.app)
 
