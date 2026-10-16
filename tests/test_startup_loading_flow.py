@@ -95,7 +95,7 @@ class EvaluationStartupFlowTests(unittest.TestCase):
         finally:
             _dispose_window(window, self.app)
 
-    def test_main_window_starts_directly_with_three_panel_workspace(self):
+    def test_main_window_starts_directly_with_sidebar_workspace(self):
         from PyQt6.QtWidgets import QLabel, QSplitter
         from ui.main_window import MainWindow
 
@@ -103,7 +103,8 @@ class EvaluationStartupFlowTests(unittest.TestCase):
         try:
             central_layout = window.centralWidget().layout()
             # 顶部条（应用名 + 右上角主题切换）是唯一额外的一行；
-            # 工作区本身必须直接是分栏，而不是落地页 / 向导。
+            # 工作区本身必须直接是「导航侧边栏 + 图表区」分栏，
+            # 而不是落地页 / 向导。
             widgets = [
                 central_layout.itemAt(index).widget()
                 for index in range(central_layout.count())
@@ -112,7 +113,9 @@ class EvaluationStartupFlowTests(unittest.TestCase):
             self.assertEqual(len(splitters), 1)
             self.assertIs(splitters[0], window.main_splitter)
             self.assertIs(widgets[-1], window.main_splitter)
-            self.assertEqual(window.main_splitter.count(), 3)
+            self.assertEqual(window.main_splitter.count(), 2)
+            # 侧边栏 = 窄轨道 + 页面栈（数据/参数/结果/日志）
+            self.assertEqual(window.sidebar_stack.count(), 4)
             # 新增的顶部条承载右上角主题按钮（U8）
             self.assertTrue(hasattr(window, 'theme_btn'))
             self.assertIsNotNone(window.theme_btn.parent())
