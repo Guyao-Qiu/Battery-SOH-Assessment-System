@@ -284,6 +284,30 @@ def _draw_success(p, s, accent):
     _accent_dot(p, accent, s - 7, 7)
 
 
+def _draw_settings(p, s, accent):
+    """参数 — 三条滑杆（横线 + 实心圆钮），与水墨线条风格一致。"""
+    for y, knob_x in ((s * 0.30, s * 0.62),
+                      (s * 0.50, s * 0.38),
+                      (s * 0.70, s * 0.55)):
+        p.drawLine(int(s * 0.16), int(y), int(s * 0.84), int(y))
+        p.save()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(_color(_LINE_COLOR_KEY))
+        p.drawEllipse(QPointF(knob_x, y), s * 0.065, s * 0.065)
+        p.restore()
+    _accent_dot(p, accent, s - 7, 7)
+
+
+def _draw_log(p, s, accent):
+    """日志 — 文档框 + 自上而下的行线，末行留短表示断行。"""
+    m = s * 0.20
+    p.drawRect(int(m), int(s * 0.12), int(s * 0.60), int(s * 0.76))
+    for index, y in enumerate((0.30, 0.44, 0.58, 0.72)):
+        x_end = s * 0.66 if index < 3 else s * 0.50
+        p.drawLine(int(m + s * 0.10), int(s * y), int(x_end), int(s * y))
+    _accent_dot(p, accent, s - 7, 7)
+
+
 def _draw_folder(p, s, accent):
     """文件夹 — 经典文件柜造型。"""
     m = s * 0.18
@@ -545,6 +569,8 @@ _DIALOG_DRAW_FUNCS = {
     'axis':        _draw_axis,
     'legend':      _draw_legend,
     'chart':       _draw_chart,
+    'settings':    _draw_settings,
+    'log':         _draw_log,
     'model':       _draw_model,
     'import':      _draw_import,
     'export':      _draw_export,
@@ -567,6 +593,8 @@ _ACCENT_FOR_KIND = {
     'axis':        _ACCENT_INFO_D,
     'legend':      _ACCENT_INFO,
     'chart':       _ACCENT_INFO_D,
+    'settings':    _ACCENT_INFO,
+    'log':         _ACCENT_INFO,
     'model':       _ACCENT_MODEL,
     'import':      _ACCENT_INFO,
     'export':      _ACCENT_SUCCESS,
@@ -581,7 +609,7 @@ def get_dialog_icon(kind):
     支持的 kind：
       app / help / tcp / error / warning / info / success / question /
       folder / save / color / line / subplot / axis / legend / chart /
-      model / import / export
+      settings / log / model / import / export
     """
     if kind == 'app':
         return get_app_icon()
