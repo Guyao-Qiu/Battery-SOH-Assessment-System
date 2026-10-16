@@ -287,5 +287,167 @@ class UiPolishLayoutTests(unittest.TestCase):
             _dispose_window(window, self.app)
 
 
+class FloatingThemeAndHelpTests(unittest.TestCase):
+    """本轮修复：拖拽跟随、画布重绘、窗口单例、数学排版、字号、使用指南。"""
+
+    @classmethod
+    def setUpClass(cls):
+        from PyQt6.QtWidgets import QApplication
+
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_dragging_the_theme_button_keeps_the_grab_point(self):
+        """拖动时按钮中心必须跟着鼠标走，不能跳位（坐标换算回归）。"""
+        from PyQt6.QtCore import QEvent, QPoint, QPointF, QSettings, Qt
+        from PyQt6.QtGui import QMouseEvent
+
+        from ui.floating_theme_button import POSITION_KEY
+        from ui.main_window import MainWindow
+
+        QSettings("BatterySOH", "AssessmentSystem").remove(POSITION_KEY)
+        window = MainWindow()
+        try:
+            window.resize(1300, 820)
+            window.move(250, 150)
+            window.show()
+            self.app.processEvents()
+
+            button = window.theme_btn
+            center = button.mapToGlobal(
+                QPoint(button.width() // 2, button.height() // 2))
+            press = QMouseEvent(
+                QEvent.Type.MouseButtonPress,
+                QPointF(button.width() / 2, button.height() / 2),
+                QPointF(center), Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+            button.mousePressEvent(press)
+
+            target = center + QPoint(-120, 80)
+            move = QMouseEvent(
+                QEvent.Type.MouseMove,
+                QPointF(button.width() / 2, button.height() / 2),
+                QPointF(target), Qt.MouseButton.NoButton,
+                Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+            button.mouseMoveEvent(move)
+            self.app.processEvents()
+
+            new_center = button.mapToGlobal(
+                QPoint(button.width() // 2, button.height() // 2))
+            offset = new_center - target
+            self.assertLessEqual(
+                abs(offset.x()), 2,
+                "拖动后按钮横向偏离鼠标，说明坐标换算又混用了坐标系")
+            self.assertLessEqual(abs(offset.y()), 2)
+        finally:
+            _dispose_window(window, self.app)
+
+    def test_dragging_notifies_the_canvas_to_repaint(self):
+        """拖动按钮必须通知图表重绘，否则会留下竖线状残影。"""
+        from ui.main_window import MainWindow
+
+        window = MainWindow()
+        try:
+            self.assertTrue(
+                hasattr(window.theme_btn, "moved"),
+                "悬浮按钮需要 moved 信号驱动画布全量重绘",
+            )
+            repainted = []
+            window.theme_btn.moved.connect(lambda: repainted.append(True))
+            window.theme_btn.moved.emit()
+            self.assertTrue(repainted)
+        finally:
+            _dispose_window(window, self.app)
+
+    def test_line_style_dialog_is_a_singleton(self):
+        """连续点击线条样式按钮只能出现一个窗口。"""
+        from ui.main_window import MainWindow
+
+        window = MainWindow()
+        try:
+            toolbar = window.toolbar
+            toolbar._open_line_style_dialog()
+            first = toolbar._line_style_dialog
+            self.assertIsNotNone(first)
+            toolbar._open_line_style_dialog()
+            self.assertIs(
+                toolbar._line_style_dialog, first,
+                "重复点击不应再新建窗口，应复用并前置已有窗口",
+            )
+        finally:
+            _dispose_window(window, self.app)
+
+    def test_feature_labels_use_math_typesetting(self):
+        """输入特征里的变量用斜体 + 下标，而不是 dq_v 这种下划线写法。"""
+        from PyQt6.QtWidgets import QLabel
+
+        from ui.main_window import MainWindow
+
+        window = MainWindow()
+        try:
+            texts = [label.text() for label in window.findChildren(QLabel)]
+            self.assertTrue(
+                any("<i>dq</i><sub>v</sub>" in text for text in texts),
+                "dq_v 应按数学排版显示为斜体 dq + 下标 v",
+            )
+            self.assertTrue(
+                any("<i>SOH</i>" in text for text in texts),
+                "SOH 应使用斜体变量写法",
+            )
+            # 复选框本身仍是纯文本（QCheckBox 不渲染富文本）
+            for name, checkbox in window.feature_checks.items():
+                self.assertNotIn("<", checkbox.text(), f"{name} 复选框不应含标记")
+        finally:
+            _dispose_window(window, self.app)
+
+    def test_help_dialog_font_size_defaults_to_12_and_applies_live(self):
+        """帮助面板字号默认 12，改动立即生效并被记住。"""
+        from PyQt6.QtCore import QSettings
+
+        from ui.main_window import HELP_FONT_SIZE_KEY, MainWindow
+
+        settings = QSettings("BatterySOH", "AssessmentSystem")
+        settings.remove(HELP_FONT_SIZE_KEY)
+        window = MainWindow()
+        try:
+            window.show_help()
+            self.app.processEvents()
+            dialog = window._help_dialog
+            self.assertIsNotNone(dialog)
+            self.assertEqual(dialog._font_size, 12, "默认字号应为 12")
+
+            dialog._font_spin.setValue(18)
+            self.app.processEvents()
+            self.assertEqual(dialog._font_size, 18)
+            self.assertEqual(
+                dialog._text.font().pointSize(), 18,
+                "改字号后正文必须立即跟着变",
+            )
+            self.assertEqual(int(settings.value(HELP_FONT_SIZE_KEY)), 18)
+        finally:
+            settings.remove(HELP_FONT_SIZE_KEY)
+            _dispose_window(window, self.app)
+
+    def test_sidebar_has_a_guide_button_with_full_instructions(self):
+        """侧边栏底部要有使用指南入口，内容覆盖工作流程与常见问题。"""
+        from ui.main_window import MainWindow
+
+        window = MainWindow()
+        try:
+            self.assertTrue(hasattr(window, "guide_btn"))
+            self.assertEqual(window.guide_btn.text(), "指南")
+            window.show_guide()
+            self.app.processEvents()
+            guide = window._guide_dialog
+            self.assertIsNotNone(guide)
+            body = guide._text.toPlainText()
+            for section in ("标准工作流程", "界面导航", "常见问题"):
+                self.assertIn(section, body, f"使用指南缺少「{section}」")
+            # 重复点击复用同一窗口
+            window.show_guide()
+            self.assertIs(window._guide_dialog, guide)
+        finally:
+            _dispose_window(window, self.app)
+
+
 if __name__ == "__main__":
     unittest.main()
