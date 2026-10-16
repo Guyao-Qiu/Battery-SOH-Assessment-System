@@ -758,8 +758,8 @@ class MainWindow(QMainWindow):
 
         source_group.setLayout(source_layout)
 
-        layout.addWidget(file_group, 1)
         layout.addWidget(source_group, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(file_group, 1)
 
     def build_params_page(self, parent):
         layout = QVBoxLayout(parent)
@@ -782,7 +782,7 @@ class MainWindow(QMainWindow):
         self.step_section.form_layout.addRow(
             '放电工步:', self.discharge_step_input)
 
-        battery_section = CollapsibleSection('电池与失效判据')
+        battery_section = CollapsibleSection('电池容量与失效判据')
         evaluation_section = CollapsibleSection('评估与验证')
         advanced_section = CollapsibleSection('模型高级参数', expanded=False)
         param_layout.addWidget(self.step_section)
@@ -843,6 +843,21 @@ class MainWindow(QMainWindow):
                  ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF'])
 
         # ---- 多特征输入（A5）：默认只用容量，勾选后启用 HI 特征 ----
+        # 标题与说明占通栏一行，说明紧贴“输入特征”字样下方，复选框另起一行
+        feature_header = QWidget()
+        header_layout = QVBoxLayout(feature_header)
+        header_layout.setContentsMargins(0, 0, 0, 2)
+        header_layout.setSpacing(2)
+        header_layout.addWidget(QLabel('输入特征'))
+        self._feature_hint = QLabel(
+            '默认只用容量（纯自回归）。勾选 dq_v / CCCT / CVCT / 内阻后'
+            '启用多特征输入；dq_v 是电压窗口内的放电容量（健康指标 HI），'
+            '不是 SOH。')
+        self._feature_hint.setProperty('role', 'muted')
+        self._feature_hint.setWordWrap(True)
+        header_layout.addWidget(self._feature_hint)
+        evaluation_section.form_layout.addRow(feature_header)
+
         feature_widget = QWidget()
         feature_layout = QVBoxLayout(feature_widget)
         feature_layout.setContentsMargins(0, 0, 0, 0)
@@ -860,15 +875,11 @@ class MainWindow(QMainWindow):
                     '注意：递归预测时非容量通道保持窗口末值。')
             self.feature_checks[name] = checkbox
             feature_layout.addWidget(checkbox)
-        _add_row(evaluation_section, '输入特征', feature_widget,
-                 ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF'])
-        self._feature_hint = QLabel(
-            '默认只用容量（纯自回归）。勾选 dq_v / CCCT / CVCT / 内阻后'
-            '启用多特征输入；dq_v 是电压窗口内的放电容量（健康指标 HI），'
-            '不是 SOH。')
-        self._feature_hint.setProperty('role', 'muted')
-        self._feature_hint.setWordWrap(True)
-        evaluation_section.form_layout.addRow('', self._feature_hint)
+        feature_label = QLabel()
+        evaluation_section.form_layout.addRow(feature_label, feature_widget)
+        all_modes = ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF']
+        self._param_rows.append((feature_header, feature_widget, all_modes))
+        self._param_rows.append((feature_label, feature_widget, all_modes))
 
         # ---- RNN/LSTM/GRU 专用 ----
         self.hidden_dim_spin = QSpinBox()
@@ -903,8 +914,18 @@ class MainWindow(QMainWindow):
         self.n_seeds_spin.setRange(1, 20)
         self.n_seeds_spin.setValue(5)
         self.n_seeds_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        _add_row(evaluation_section, '多种子数(置信区间)', self.n_seeds_spin,
-                 ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF'])
+        # “置信区间”作为第二行小字放在标签下方，标签列更窄、排版更紧凑
+        n_seeds_label = QWidget()
+        n_seeds_label_layout = QVBoxLayout(n_seeds_label)
+        n_seeds_label_layout.setContentsMargins(0, 0, 0, 0)
+        n_seeds_label_layout.setSpacing(0)
+        n_seeds_label_layout.addWidget(QLabel('多种子数'))
+        n_seeds_sub_label = QLabel('置信区间')
+        n_seeds_sub_label.setProperty('role', 'muted')
+        n_seeds_label_layout.addWidget(n_seeds_sub_label)
+        evaluation_section.form_layout.addRow(n_seeds_label, self.n_seeds_spin)
+        self._param_rows.append((n_seeds_label, self.n_seeds_spin,
+                                 ['RNN', 'GRU', 'LSTM', 'XGBoost', 'RF']))
 
         # ---- XGBoost 专用 ----
         self.xgb_n_estimators_spin = QSpinBox()
