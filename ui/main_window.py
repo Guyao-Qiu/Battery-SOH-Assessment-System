@@ -1455,18 +1455,10 @@ class MainWindow(QMainWindow):
         self.result_view.setMinimumHeight(180)
         self.result_container_layout.addWidget(self.result_view)
 
-        # 起点选择 + 导出 CSV（U1.6）
+        # 导出 CSV（U1.6）
         result_tools = QHBoxLayout()
         result_tools.setContentsMargins(0, 0, 0, 0)
         result_tools.setSpacing(6)
-        self.start_frac_combo = QComboBox()
-        self.start_frac_combo.setAccessibleName('选择滚动预测起点')
-        self.start_frac_combo.currentIndexChanged.connect(
-            self._on_start_frac_changed)
-        start_label = QLabel('预测起点')
-        start_label.setProperty('role', 'muted')
-        result_tools.addWidget(start_label)
-        result_tools.addWidget(self.start_frac_combo)
         result_tools.addStretch(1)
         self.copy_table_btn = QPushButton('复制表格')
         self.copy_table_btn.setProperty('role', 'ghost')
@@ -2494,15 +2486,9 @@ class MainWindow(QMainWindow):
             battery_data = self.worker.battery_dict.get(name, {})
             measured = np.asarray(
                 battery_data.get('capacity', pred), dtype=np.float64)
-            # A4：失效语义基于滚动起点的递归预测（而不是一步预测）
+            # 失效语义基于递归预测（从初始窗口起、不使用未来真实值）
             recursive = item.get('recursive_prediction')
-            forecast = item.get('forecast')
-            if forecast:
-                failure_prediction = forecast
-                prediction_start = int(
-                    item.get('forecast_start', len(measured) - len(forecast)))
-                item['failure_cycle_protocol'] = 'rolling_origin'
-            elif recursive is not None:
+            if recursive is not None:
                 failure_prediction = recursive
                 prediction_start = len(measured) - len(recursive)
                 item['failure_cycle_protocol'] = 'recursive_future'
@@ -2648,7 +2634,7 @@ class MainWindow(QMainWindow):
             widget = getattr(self, name, None)
             if widget is not None:
                 widget.setVisible(False)
-        for name in ('copy_table_btn', 'csv_btn', 'start_frac_combo'):
+        for name in ('copy_table_btn', 'csv_btn'):
             widget = getattr(self, name, None)
             if widget is not None:
                 widget.setVisible(False)
@@ -2705,7 +2691,7 @@ class MainWindow(QMainWindow):
                 widget.setParent(None)
                 widget.deleteLater()
         for name in ('result_view', 'result_notes', 'copy_table_btn',
-                     'csv_btn', 'start_frac_combo'):
+                     'csv_btn'):
             widget = getattr(self, name, None)
             if widget is not None:
                 widget.setVisible(True)
@@ -2719,41 +2705,10 @@ class MainWindow(QMainWindow):
         self._last_detail_list = list(detail_list or [])
         # 恢复被状态横幅隐藏的结果表与工具行
         self.clear_result_display()
-        self._refresh_start_frac_options(self._last_detail_list)
         self._rebuild_result_rows()
         self._update_result_summary(
             self._last_detail_list, elapsed,
             selected_metric or self.metric_combo.currentText())
-
-    def _refresh_start_frac_options(self, detail_list):
-        """按当前结果里实际存在的滚动起点填充下拉框。"""
-        fracs = set()
-        for item in detail_list or []:
-            rolling = (item or {}).get('rolling') or {}
-            fracs.update(rolling.get('per_start') or {})
-        options = sorted(float(f) for f in fracs)
-        combo = getattr(self, 'start_frac_combo', None)
-        if combo is None:
-            return
-        blocker = QSignalBlocker(combo)
-        combo.clear()
-        for frac in options:
-            combo.addItem(f'{frac:.0%}', frac)
-        primary = next(
-            (item.get('primary_start_frac') for item in detail_list
-             if item.get('primary_start_frac') is not None), None)
-        if primary is not None:
-            index = combo.findData(float(primary))
-            if index >= 0:
-                combo.setCurrentIndex(index)
-        del blocker
-
-    def _current_start_frac(self):
-        combo = getattr(self, 'start_frac_combo', None)
-        if combo is None or combo.count() == 0:
-            return None
-        data = combo.currentData()
-        return None if data is None else float(data)
 
     def _baseline_rows(self, detail_list):
         """收集基线（平推 / 线性外推 / 双指数）用于并排展示（A9）。"""
@@ -2775,7 +2730,6 @@ class MainWindow(QMainWindow):
             return
         rows = rows_from_details(
             detail_list,
-            start_frac=self._current_start_frac(),
             baselines=self._baseline_rows(detail_list),
         )
         self.result_model.set_tokens(theme_tokens(self._theme_mode))
@@ -2816,8 +2770,7 @@ class MainWindow(QMainWindow):
         ]
         if alpha_values and min(alpha_values) < 0.05:
             notes.append(
-                '⚠ 有电池的持久性混合系数 α < 0.05：模型未超越平推基线，'
-                '递归预测已退化为水平线。')
+                '⚠ 有电池的持久性混合系数 α < 0.05：模型未超越平推基线。')
         # 置信区间口径说明：它只是同一留一折内的随机种子波动
         if any(int(item.get('n_seeds', 1)) > 1 for item in detail_list):
             notes.append(
@@ -2828,10 +2781,6 @@ class MainWindow(QMainWindow):
             self.result_notes.setVisible(True)
         else:
             self.result_notes.setVisible(False)
-
-    def _on_start_frac_changed(self, _index):
-        if getattr(self, '_last_detail_list', None):
-            self._rebuild_result_rows()
 
     def _copy_result_table(self):
         """把当前结果表复制到剪贴板（Tab 分隔，可直接粘进 Excel）。"""

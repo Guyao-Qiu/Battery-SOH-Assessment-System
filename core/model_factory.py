@@ -76,6 +76,23 @@ def hparam_grid(config, mode=None):
     raise ValueError(f'不支持的模型类型: {mode}')
 
 
+def config_default_hp(config, mode, grid):
+    """最初样式：不做内层交叉验证，从网格里取与配置一致的那组超参。"""
+    if not grid:
+        return {}
+    if (mode or config.mode) in RECURRENT_MODES:
+        epochs = int(getattr(config, 'epochs', 100))
+        for hp in grid:
+            if hp.get('epochs') == epochs:
+                return hp
+        return grid[-1]
+    depth = int(getattr(config, 'max_depth', 6))
+    for hp in grid:
+        if hp.get('max_depth') == depth:
+            return hp
+    return grid[-1]
+
+
 def scale_training_input(x, y, rated, feature_scaler=None):
     """按与推理**完全一致**的规则归一化训练输入。
 

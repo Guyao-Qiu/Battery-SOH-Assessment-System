@@ -94,16 +94,16 @@ class PersistenceBlendTests(unittest.TestCase):
             _, _, detail = train_module._train_one_battery(
                 config, data, "target", seed=3)
 
-        self.assertIn("persistence_blend", detail)
-        # A3：α 用多步滚动误差标定。一个比平推差得多的模型应该被压到 α≈0。
-        self.assertLess(detail["persistence_blend"], 0.5)
-        self.assertIn("persistence_baseline_metrics", detail)
-        self.assertIn("rmse_skill_vs_persistence", detail)
-        self.assertIn("rolling_rows", detail)
+        # 最初样式：不做 α 收缩标定，也不做滚动起点评估。
+        self.assertNotIn("persistence_blend", detail)
+        self.assertNotIn("rolling_rows", detail)
+        # 头条指标回到一步预测，且模型输出不再被 α 压回平推。
         np.testing.assert_allclose(
-            detail["one_step_prediction"], [8.0, 7.0, 6.0, 5.0])
+            detail["one_step_prediction"], [8.5, 7.5, 6.5, 5.5])
+        self.assertEqual(detail["one_step_metrics"]["rmse"], 0.0)
+        self.assertEqual(detail["rul_protocol"], "recursive_future")
 
-    def test_final_model_persists_validation_selected_blend(self):
+    def test_final_model_does_not_shrink_to_persistence(self):
         class RecordingRF:
             def __init__(self, n_estimators, **kwargs):
                 self.n_estimators = n_estimators
@@ -139,8 +139,9 @@ class PersistenceBlendTests(unittest.TestCase):
             _, metadata = train_model_on_all_data(
                 config, data, ["cell_a", "cell_b"])
 
+        # 最初样式：模型输出原样使用，不再向平推收缩。
         self.assertIn("persistence_blend", metadata)
-        self.assertEqual(metadata["persistence_blend"], 0.0)
+        self.assertEqual(metadata["persistence_blend"], 1.0)
 
 
 class CausalCleaningTests(unittest.TestCase):

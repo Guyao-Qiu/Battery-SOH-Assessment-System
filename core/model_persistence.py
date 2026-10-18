@@ -15,15 +15,11 @@ from core.preprocess import (
     FeatureScaler,
 )
 from core.model_factory import (
+    config_default_hp,
     hparam_grid,
     make_fit_fn,
 )
-from core.protocol import (
-    choose_blend_by_rollout,
-    fit_final,
-    model_step_for,
-    select_hparams,
-)
+from core.protocol import fit_final
 from core.cancellation import check_cancelled
 from utils.config import normalize_model_name
 
@@ -404,15 +400,10 @@ def _prepare_final_training_data(config, battery_dict, battery_list):
 
 def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
                             log_callback=None):
-    """选超参 → 用**全部**有效电池的全部窗口定型（与评估路径共用 ``fit_final``）。
+    """用**全部**有效电池的全部窗口定型（与评估路径共用 ``fit_final``）。
 
-    改进方案 A2：旧实现自己在 ``model_persistence`` 里重复了一遍 RNN 训练循环、
-    RF 分批加树和 XGBoost early stopping，而且「调参用的验证集」是训练电池的
-    最后一块 / 后 10%——与评估路径不同，导致「报告的评估指标评估的并不是最终
-    部署的那个模型」。
-
-    现在两条路径共用 :func:`core.protocol.fit_final`，超参由内层留一电池交叉验证
-    选出（验证对象是一块没见过的电池，和最终使用场景一致）。
+    最初样式：不做内层交叉验证，直接用配置默认超参；不做 α 收缩标定
+    （``persistence_blend`` 固定 1.0，预测即原始模型输出）。
     """
     check_cancelled(stop_flag)
     mode = normalize_model_name(config.mode)
@@ -423,33 +414,17 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
     multifeature = len(columns) > 1
     rated = float(config.rated_capacity)
 
-    # ── 选超参：内层留一电池交叉验证 ──
-    # scaler 只用全部有效电池拟合；fit_fn 内部会用它归一化，因此这里传原始量纲。
+    # ── scaler 只用全部有效电池拟合；fit_fn 内部会用它归一化，因此这里传原始量纲 ──
     final_scaler, feature_scaler = _fit_final_scalers(
         config, data, columns, multifeature, rated)
     fit_fn = make_fit_fn(
         config, stop_flag=stop_flag, log_callback=log_callback,
         name='最终模型', net_class=Net, feature_scaler=feature_scaler)
     grid = hparam_grid(config, mode)
-    device = getattr(config, 'device', 'cpu')
-    if len(valid_names) >= 2:
-        hp, cv_score, fold_models = select_hparams(
-            battery_dict, valid_names, config.window_size, fit_fn, grid, rated,
-            start_frac=0.5, stop_flag=stop_flag,
-            columns=columns if multifeature else None, return_folds=True,
-            device=device, feature_scaler=feature_scaler)
-        if log_callback:
-            score_text = (
-                'N/A' if cv_score is None or not np.isfinite(cv_score)
-                else f'{cv_score:.4f} Ah')
-            log_callback(
-                f'[最终模型] 内层留一电池交叉验证（{len(valid_names)} 折）：'
-                f'选定超参 {hp}，滚动 RMSE@50%={score_text}')
-    else:
-        hp = grid[0]
-        fold_models = {}
-        if log_callback:
-            log_callback(f'[最终模型] 只有一块电池，跳过内层交叉验证，使用 {hp}')
+    hp = config_default_hp(config, mode, grid)
+    if log_callback:
+        log_callback(
+            f'[最终模型] 使用配置默认超参 {hp}（最初样式：跳过内层交叉验证）')
 
     check_cancelled(stop_flag)
 
@@ -461,22 +436,17 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
         columns=columns if multifeature else None)
     check_cancelled(stop_flag)
 
-    # ── 持久性混合系数：用「没见过验证电池」的内层折模型 + 多步滚动标定 ──
-    blend = _final_blend(
-        config, battery_dict, valid_names, rated, columns,
-        multifeature, feature_scaler, fold_models, log_callback)
-
     if mode in RECURRENT_MODES:
         final_model = final_model.to('cpu')
 
     metadata = _final_training_metadata(
         config, final_scaler, valid_names, battery_dict, len(all_x), hp,
         feature_scaler=feature_scaler, columns=columns)
-    metadata['persistence_blend'] = blend
+    metadata['persistence_blend'] = 1.0
     if log_callback:
         log_callback(
             f'[最终模型] 已用全部 {len(valid_names)} 块电池、'
-            f'{len(all_x)} 个样本重训，超参={hp}，α={blend:.3f}')
+            f'{len(all_x)} 个样本重训，超参={hp}')
     return final_model, metadata
 
 
@@ -500,32 +470,6 @@ def _fit_final_scalers(config, data, columns, multifeature, rated):
         combined = np.vstack(frames)
         feature_scaler = FeatureScaler().fit(combined)
     return scaler, feature_scaler
-
-
-def _final_blend(config, battery_dict, valid_names, rated, columns,
-                 multifeature, feature_scaler, fold_models, log_callback):
-    """最终模型的 α：与评估路径同一口径（多步滚动 + 内层折模型）。"""
-    if not fold_models:
-        return 1.0
-    device = getattr(config, 'device', 'cpu')
-    alphas = {}
-    for val_name, fold_model in fold_models.items():
-        step_raw = model_step_for(
-            fold_model, rated, device=device, feature_scaler=feature_scaler)
-        alpha, _ = choose_blend_by_rollout(
-            step_raw, battery_dict, [val_name], config.window_size,
-            starts=(0.5, 0.6),
-            columns=columns if multifeature else None)
-        alphas[val_name] = alpha
-    blend = float(np.mean(list(alphas.values()))) if alphas else 1.0
-    if log_callback:
-        detail = '，'.join(f'{k}={v:.2f}' for k, v in alphas.items())
-        log_callback(f'[最终模型] 防过拟合校准系数 α={blend:.3f}（{detail}）')
-        if blend < 0.05:
-            log_callback(
-                '[最终模型] ⚠ 模型未超越持久性基线（α≈0）：'
-                '预测将退化为平推。')
-    return blend
 
 
 def _feature_columns(config):

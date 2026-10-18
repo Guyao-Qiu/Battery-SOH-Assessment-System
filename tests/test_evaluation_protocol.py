@@ -115,7 +115,7 @@ class EvaluationIsolationTests(unittest.TestCase):
         self.assertIn("one_step_metrics", result["detail"])
         self.assertIn("recursive_metrics", result["detail"])
         self.assertEqual(
-            result["detail"]["rul_protocol"], "rolling_origin")
+            result["detail"]["rul_protocol"], "recursive_future")
         self.assertAlmostEqual(
             result["detail"]["recursive_metrics"]["re"], 0.2)
 

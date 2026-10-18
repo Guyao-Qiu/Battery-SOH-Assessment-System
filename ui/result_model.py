@@ -5,7 +5,7 @@
 ``QTableView + QAbstractTableModel + QSortFilterProxyModel``：
 
 - 点列头排序（用 ``UserRole`` 里的**原始值**排序，而不是格式化后的字符串）；
-- 列包含滚动起点的 RMSE / MAE / 技能分 / 预测 RUL / 真实 RUL / RUL 误差；
+- 列包含一步预测的 RMSE / MAE、预测 / 真实 EOL 与 RUL 误差；
 - 末尾一行**汇总**：跨电池 mean ± std（n = 电池数）+ bootstrap 区间；
 - 技能分 < 0.05 的单元格用 warning 色并加 ⚠（A3）；
 - 数值保留 4 位小数并带单位。
@@ -34,11 +34,11 @@ COLUMNS = (
 #: 每列的完整说明（工具提示）
 COLUMN_HELP = {
     'name': '电池名称',
-    'rmse': '滚动预测起点上的递归预测 RMSE（Ah）',
-    'mae': '滚动预测起点上的递归预测 MAE（Ah）',
+    'rmse': '一步预测 RMSE（Ah）：每个点都用截至该点的真实历史',
+    'mae': '一步预测 MAE（Ah）',
     'skill': '技能分 = 1 − RMSE模型 / RMSE平推；< 0.05 表示未超越平推基线',
-    'pred_rul': '模型预测的剩余寿命（循环数）',
-    'true_rul': '真实剩余寿命（循环数）',
+    'pred_rul': '递归预测首次跌破失效阈值的循环数',
+    'true_rul': '实测容量首次跌破失效阈值的循环数',
     'rul_err': 'RUL 误差 = 预测 − 真实；正值表示预测偏保守',
     'status': '失效检出状态：EOL 是否落在预测期内',
 }
@@ -88,8 +88,9 @@ def format_optional(value, fmt):
 def rows_from_details(detail_list, start_frac=None, baselines=None):
     """把 ``detail`` 列表转成结果表行。
 
-    ``start_frac`` 指定看哪个滚动起点（默认用每块电池的主起点）。
-    ``baselines`` 是 ``{基线名: {'rmse': ...}}``，会作为额外的行插在后面。
+    ``start_frac`` 保留以兼容旧调用方；最初样式的评估不再有滚动起点，
+    该参数被忽略。``baselines`` 是 ``{基线名: {'rmse': ...}}``，会作为额外的行
+    插在后面。
     """
     rows = []
     for detail in detail_list or []:
@@ -112,14 +113,30 @@ def rows_from_details(detail_list, start_frac=None, baselines=None):
     return rows
 
 
-def _row_from_detail(detail, start_frac):
+def _first_cross(values, threshold):
+    """首次跌破阈值的下标；从未跌破则返回 None（委托统一实现）。"""
+    if threshold is None or not values:
+        return None
+    from core.result_semantics import first_failure_index
+
+    return first_failure_index(values, threshold)
+
+
+def _row_from_detail(detail, start_frac=None):
+    """结果表的一行：一步预测指标 + 由递归预测推出的 RUL。
+
+    最初样式没有滚动起点，因此 RMSE/MAE 取 ``one_step_metrics``；
+    RUL 从「实测序列」与「递归预测序列」各自首次跌破失效阈值的位置相减得到。
+    """
     if not isinstance(detail, dict):
         return None
     battery = detail.get('battery', '?')
+    one_step = detail.get('one_step_metrics') or {}
+    recursive = detail.get('recursive_metrics') or {}
     row = {
         'name': battery,
-        'rmse': detail.get('rmse'),
-        'mae': detail.get('mae'),
+        'rmse': detail.get('rmse', one_step.get('rmse')),
+        'mae': detail.get('mae', one_step.get('mae')),
         'skill': detail.get('rmse_skill_vs_persistence'),
         'pred_rul': None,
         'true_rul': None,
@@ -127,57 +144,27 @@ def _row_from_detail(detail, start_frac):
         'status': detail.get('re_status', 'unavailable'),
     }
 
-    # 优先用滚动起点里对应那一行
-    target = start_frac if start_frac is not None else detail.get(
-        'primary_start_frac', 0.5)
-    rolling = detail.get('rolling') or {}
-    per_start = rolling.get('per_start') or {}
-    entry = None
-    if per_start:
-        if target is not None:
-            for frac, value in per_start.items():
-                if abs(float(frac) - float(target)) < 1e-9:
-                    entry = value
-                    break
-        if entry is None:
-            entry = next(iter(per_start.values()))
-    if entry:
-        row['rmse'] = entry.get('rmse', row['rmse'])
-        row['mae'] = entry.get('mae', row['mae'])
-        if entry.get('skill') is not None:
-            row['skill'] = entry['skill']
-        row['mean_abs_rul_err'] = entry.get('mean_abs_rul_err')
-        row['detected'] = entry.get('detected')
-        row['needs_detection'] = entry.get('needs_detection')
-        if entry.get('detected'):
-            row['status'] = 'ok'
-        elif entry.get('needs_detection'):
-            row['status'] = 'pred_censored'
-        else:
-            row['status'] = 'true_censored'
-
-    # RUL 明细：优先取该起点的原始行
-    rows = detail.get('rolling_rows') or []
-    picked = None
-    for item in rows:
-        if target is not None and abs(
-                float(item.get('start_frac', -1)) - float(target)) < 1e-9:
-            picked = item
-            break
-    if picked is None and rows:
-        picked = rows[0]
-    if picked:
-        row['true_rul'] = picked.get('true_rul')
-        row['pred_rul'] = (
-            None if picked.get('pred_rul') is None
-            else int(round(picked['pred_rul'])))
-        row['rul_err'] = (
-            None if picked.get('rul_err') is None
-            else int(round(picked['rul_err'])))
-        if picked.get('status'):
-            row['status'] = picked['status']
-    if row.get('rul_err') is None:
-        row['rul_err'] = detail.get('rul_err')
+    threshold = detail.get('threshold')
+    measured = detail.get('measured') or []
+    recursive_prediction = detail.get('recursive_prediction') or []
+    true_eol = detail.get('measured_failure_position')
+    pred_eol = detail.get('predicted_failure_position')
+    if true_eol is None and measured:
+        true_eol = _first_cross(measured, threshold)
+    if pred_eol is None and recursive_prediction:
+        pred_eol = _first_cross(recursive_prediction, threshold)
+    if true_eol is not None and pred_eol is not None:
+        row['true_rul'] = int(true_eol)
+        row['pred_rul'] = int(pred_eol)
+        row['rul_err'] = int(pred_eol - true_eol)
+        row['status'] = 'ok'
+    elif true_eol is not None:
+        row['true_rul'] = int(true_eol)
+        row['status'] = 'pred_censored'
+    elif measured or detail.get('measured_failure_status') == 'not_observed':
+        row['status'] = 'true_censored'
+    elif recursive_prediction:
+        row['status'] = detail.get('re_status', 'unavailable')
 
     row['status_label'] = STATUS_LABELS.get(
         row['status'], row.get('status') or '—')

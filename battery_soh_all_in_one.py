@@ -3,7 +3,7 @@
 #  Battery SOH Assessment System —— 单文件整合版 (All-in-One)
 # ===========================================================================
 #  本文件由 scripts/build_all_in_one.py 自动生成，请勿手工编辑。
-#  生成时间: 2026-10-16 15:27:17
+#  生成时间: 2026-10-18 17:40:57
 #  内嵌模块: 41 个（原 core/ models/ ui/ utils/ 全部源码）
 #
 #  运行方式:
@@ -721,17 +721,17 @@ _EMBEDDED_STATIC = {
 }
 
 _EMBEDDED_CONFIG = (
-        'ew0KICAicmF0ZWRfY2FwYWNpdHkiOiAwLjAxLA0KICAidGhyZXNob2xkX3JhdGlvIjogMS4wLA0K'
-        'ICAidm9sdGFnZV91cHBlciI6IDMuOCwNCiAgInZvbHRhZ2VfbG93ZXIiOiAzLjQsDQogICJ3aW5k'
-        'b3dfc2l6ZSI6IDE2LA0KICAiZXBvY2hzIjogMTAwLA0KICAiaGlkZGVuX2RpbSI6IDYxLA0KICAi'
-        'c2VlZCI6IDAsDQogICJuX3NlZWRzIjogMiwNCiAgIm1vZGUiOiAiUk5OIiwNCiAgIm1ldHJpYyI6'
-        'ICJybXNlIiwNCiAgImRldmljZSI6ICJjcHUiLA0KICAibm9ybV9tZXRob2QiOiAicmF0ZWQiLA0K'
+        'ew0KICAicmF0ZWRfY2FwYWNpdHkiOiAxLjEsDQogICJ0aHJlc2hvbGRfcmF0aW8iOiAwLjgsDQog'
+        'ICJ2b2x0YWdlX3VwcGVyIjogMy44LA0KICAidm9sdGFnZV9sb3dlciI6IDMuNCwNCiAgIndpbmRv'
+        'd19zaXplIjogMTYsDQogICJlcG9jaHMiOiAxMDAsDQogICJoaWRkZW5fZGltIjogNjQsDQogICJz'
+        'ZWVkIjogMiwNCiAgIm5fc2VlZHMiOiAzLA0KICAibW9kZSI6ICJSTk4iLA0KICAibWV0cmljIjog'
+        'InJtc2UiLA0KICAiZGV2aWNlIjogImN1ZGEiLA0KICAibm9ybV9tZXRob2QiOiAicmF0ZWQiLA0K'
         'ICAiZmVhdHVyZV9jb2x1bW5zIjogWw0KICAgICJjYXBhY2l0eSINCiAgXSwNCiAgIm5fZXN0aW1h'
         'dG9ycyI6IDEwMCwNCiAgImxlYXJuaW5nX3JhdGUiOiAwLjA1LA0KICAibWF4X2RlcHRoIjogNiwN'
         'CiAgInN1YnNhbXBsZSI6IDEuMCwNCiAgImNvbHNhbXBsZV9ieXRyZWUiOiAxLjAsDQogICJtaW5f'
         'c2FtcGxlc19sZWFmIjogMSwNCiAgIm1heF9mZWF0dXJlcyI6IDEuMCwNCiAgInBhdGllbmNlIjog'
-        'MjAsDQogICJhZGFwdGVyX3R5cGUiOiAiQ0FMQ0UiLA0KICAiY2Nfc3RlcCI6IG51bGwsDQogICJj'
-        'dl9zdGVwIjogbnVsbCwNCiAgImRpc2NoYXJnZV9zdGVwIjogbnVsbA0KfQ=='
+        'MjAsDQogICJhZGFwdGVyX3R5cGUiOiAiQ0FMQ0UiLA0KICAiY2Nfc3RlcCI6IDIsDQogICJjdl9z'
+        'dGVwIjogNCwNCiAgImRpc2NoYXJnZV9zdGVwIjogNw0KfQ=='
 )
 
 # ---------------------------------------------------------------------------
@@ -6081,6 +6081,23 @@ _MODULE_SOURCES['core.model_factory'] = (
     "    raise ValueError(f'不支持的模型类型: {mode}')\n"
     '\n'
     '\n'
+    'def config_default_hp(config, mode, grid):\n'
+    '    """最初样式：不做内层交叉验证，从网格里取与配置一致的那组超参。"""\n'
+    '    if not grid:\n'
+    '        return {}\n'
+    '    if (mode or config.mode) in RECURRENT_MODES:\n'
+    "        epochs = int(getattr(config, 'epochs', 100))\n"
+    '        for hp in grid:\n'
+    "            if hp.get('epochs') == epochs:\n"
+    '                return hp\n'
+    '        return grid[-1]\n'
+    "    depth = int(getattr(config, 'max_depth', 6))\n"
+    '    for hp in grid:\n'
+    "        if hp.get('max_depth') == depth:\n"
+    '            return hp\n'
+    '    return grid[-1]\n'
+    '\n'
+    '\n'
     'def scale_training_input(x, y, rated, feature_scaler=None):\n'
     '    """按与推理**完全一致**的规则归一化训练输入。\n'
     '\n'
@@ -6251,17 +6268,12 @@ _MODULE_SOURCES['core.model_factory'] = (
 
 # ---- core/train.py ----
 _MODULE_SOURCES['core.train'] = (
-    '"""留一电池评估：统一的「选超参 → 重训 → 滚动起点评估」协议。\n'
+    '"""留一电池评估：最初的「一步预测」协议。\n'
     '\n'
-    '改进方案 A2 / A3 / A4 的落地：\n'
-    '\n'
-    '- **A2**：评估用的模型与部署用的模型走同一个 ``fit_final``——用**全部训练电池的\n'
-    '  全部窗口**训练。旧流程把每块训练电池切成「前 80% 训练 + 后 20% 验证」，\n'
-    '  而寿命末段（膝点）恰好落在后 20%，模型从没见过寿命末段却被要求预测失效点。\n'
-    '- **A3**：持久性混合系数 α 用**多步滚动误差**标定，且只用「没见过该验证电池」的\n'
-    '  内层折模型，避免一步误差标定、递归多步使用造成的坍缩。\n'
-    '- **A4**：头条指标改为**滚动预测起点**（40%–70%）上的递归预测误差，一步指标\n'
-    '  降级为诊断信息；同时并排给出「平推 / 线性外推 / 双指数」三条基线。\n'
+    '- 评估用的模型与部署用的模型走同一个 ``fit_final``——用**全部训练电池的\n'
+    '  全部窗口**定型。\n'
+    '- 头条指标 = **一步预测**（每个点都用截至该点的真实历史），递归预测仅作为\n'
+    '  诊断信息一并报告；不再做 α 收缩标定与滚动起点评估。\n'
     '"""\n'
     '\n'
     'import numpy as np\n'
@@ -6281,30 +6293,14 @@ _MODULE_SOURCES['core.train'] = (
     'from core.cancellation import check_cancelled\n'
     'from core.progress import make_progress_event\n'
     'from core.model_factory import (\n'
+    '    config_default_hp,\n'
     '    hparam_grid,\n'
     '    make_fit_fn,\n'
-    '    make_step_fn,\n'
     ')\n'
-    'from core.protocol import model_step_for\n'
+    'from core.protocol import fit_final\n'
     'from core import protocol as protocol_module\n'
-    'from core.protocol import (\n'
-    '    DEFAULT_STARTS,\n'
-    '    choose_blend_by_rollout,\n'
-    '    fit_final,\n'
-    '    inner_fold_models,\n'
-    '    baseline_rmse_by_start,\n'
-    '    rolling_origin_eval,\n'
-    '    select_hparams,\n'
-    '    skill_vs_persistence,\n'
-    '    summarize_rolling_rows,\n'
-    ')\n'
-    'from core.baselines import BASELINES\n'
     '#: 模块级 ``Net``：保持既有测试/扩展点可用（可被 mock 替换）\n'
     'from models.rnn_model import Net  # noqa: F401\n'
-    '\n'
-    '\n'
-    '#: 头条指标使用的预测起点（寿命的 50%）\n'
-    'PRIMARY_START = 0.5\n'
     '\n'
     '\n'
     'def _feature_columns(config):\n'
@@ -6342,10 +6338,8 @@ _MODULE_SOURCES['core.train'] = (
     '                                  rated_capacity, threshold_ratio):\n'
     '    """评估「用真实历史的一步预测」与「从初始窗口起的完全递归预测」。\n'
     '\n'
-    '    这两个协议**分开报告**：一步预测每一步都用真实历史，误差不累积，天然接近\n'
-    '    「平推」的好成绩，区分不出模型好坏；递归预测才是真实使用场景。\n'
-    '\n'
-    '    头条指标请看 :func:`rolling_origin_eval` 的滚动起点结果。\n'
+    '    这两个协议**分开报告**：一步预测每一步都用真实历史，误差不累积；\n'
+    '    递归预测从初始窗口一路外推，用于观察误差累积形态。头条指标取一步预测。\n'
     '    """\n'
     '    one_truth, one_prediction = generate_one_step_predictions(\n'
     '        sequence, window_size, predict_batch)\n'
@@ -6368,124 +6362,6 @@ _MODULE_SOURCES['core.train'] = (
     '        },\n'
     "        'rul_re': recursive_metrics['re'],\n"
     '    }\n'
-    '\n'
-    '\n'
-    'def _baseline_one_step_metrics(one_step, target_frames, window, multifeature,\n'
-    '                               rated_capacity, threshold_ratio):\n'
-    '    """「平推」基线的一步预测指标（供结果表并排展示，A3/A9）。\n'
-    '\n'
-    "    平推的一步预测就是窗口末值，因此与 ``one_step['truth']`` 逐位对齐。\n"
-    '    """\n'
-    "    truth = np.asarray(one_step.get('truth', []), dtype=np.float64).reshape(-1)\n"
-    '    if len(truth) == 0:\n'
-    '        return {}\n'
-    '    frames = np.asarray(target_frames, dtype=np.float64)\n'
-    '    if multifeature:\n'
-    '        frames = frames[:, 0]\n'
-    '    windows = frames[:-1] if len(frames) == len(truth) + 1 else frames[:len(truth)]\n'
-    '    persistence = windows if len(windows) == len(truth) else np.full(\n'
-    '        len(truth), frames[0] if len(frames) else 0.0)\n'
-    '    try:\n'
-    '        return calc_all_metrics(\n'
-    '            truth, persistence, rated_capacity, threshold_ratio)\n'
-    '    except ValueError:\n'
-    '        return {}\n'
-    '\n'
-    '\n'
-    'def _capacity_only_step(step_fn):\n'
-    '    """把「逐步」基线包装成只吃容量通道的 step_fn。\n'
-    '\n'
-    '    基线（平推 / 线性外推）只关心容量序列，但多特征帧的窗口是 ``(1, W, F)``；\n'
-    '    这里统一截出容量列，让基线在多特征配置下也能评估。\n'
-    '    """\n'
-    '    def wrapped(windows):\n'
-    '        array = np.asarray(windows)\n'
-    '        if array.ndim == 3:\n'
-    '            array = array[:, :, 0]\n'
-    '        return step_fn(array)\n'
-    '\n'
-    '    return wrapped\n'
-    '\n'
-    '\n'
-    'def _baseline_table(config, frames, window, threshold, rated_capacity,\n'
-    "                    starts=DEFAULT_STARTS, name='', debounce=1):\n"
-    '    """在同一组滚动起点上评估三条经验基线（平推 / 线性外推 / 双指数）。"""\n'
-    '    table = {}\n'
-    '    for baseline_name, spec in BASELINES.items():\n'
-    '        try:\n'
-    "            if spec['kind'] == 'step':\n"
-    '                rows = rolling_origin_eval(\n'
-    "                    frames, window, _capacity_only_step(spec['fn']), threshold,\n"
-    '                    starts, battery=name, debounce=debounce)\n'
-    '            else:\n'
-    '                rows = _direct_baseline_rows(\n'
-    "                    spec['fn'], frames, window, threshold, starts, name,\n"
-    '                    debounce)\n'
-    '        except (ValueError, FloatingPointError):\n'
-    '            continue\n'
-    '        if rows:\n'
-    '            table[baseline_name] = {\n'
-    "                'kind': spec['kind'],\n"
-    "                'rows': rows,\n"
-    "                'rmse': float(np.mean([row['rmse'] for row in rows])),\n"
-    "                'mean_abs_rul_err': _mean_rul_error(rows),\n"
-    "                'detected': len([row for row in rows if row['status'] == 'ok']),\n"
-    '            }\n'
-    '    return table\n'
-    '\n'
-    '\n'
-    'def _direct_baseline_rows(direct_fn, frames, window, threshold, starts, name,\n'
-    '                          debounce=1):\n'
-    '    """直接多步基线：在起点拟合一次，整段外推（不逐步重拟合）。"""\n'
-    '    array = np.asarray(frames, dtype=np.float64)\n'
-    '    if array.ndim == 1:\n'
-    '        array = array.reshape(-1, 1)\n'
-    '    rows = []\n'
-    '    for frac in starts:\n'
-    '        start = int(len(array) * frac)\n'
-    '        if start < window or start >= len(array) - 1:\n'
-    '            continue\n'
-    '        truth = array[start:, 0]\n'
-    '        prediction = np.asarray(\n'
-    '            direct_fn(array[start - window:start, 0], len(truth)),\n'
-    '            dtype=np.float64).reshape(-1)\n'
-    '        rows.append(_score_row(\n'
-    '            frac, start, name, truth, prediction, threshold, debounce))\n'
-    '    return rows\n'
-    '\n'
-    '\n'
-    'def _score_row(frac, start, name, truth, prediction, threshold, debounce=1):\n'
-    '    """把一段真实 / 预测序列打分（与 ``rolling_origin_eval`` 同一口径）。"""\n'
-    '    true_eol = protocol_module.first_cross(truth, threshold, debounce)\n'
-    '    pred_eol = protocol_module.first_cross(prediction, threshold, debounce)\n'
-    '    row = {\n'
-    "        'start_frac': float(frac),\n"
-    "        'start': int(start),\n"
-    "        'battery': name,\n"
-    "        'rmse': float(np.sqrt(np.mean((prediction - truth) ** 2))),\n"
-    "        'mae': float(np.mean(np.abs(prediction - truth))),\n"
-    "        'true_rul': true_eol,\n"
-    "        'pred_rul': pred_eol,\n"
-    "        'rul_err': None,\n"
-    "        'rul_rel_err': None,\n"
-    "        'within_20pct': None,\n"
-    '    }\n'
-    '    if true_eol is None:\n'
-    "        row['status'] = 'true_censored'\n"
-    '    elif pred_eol is None:\n'
-    "        row['status'] = 'pred_censored'\n"
-    '    else:\n'
-    "        row['status'] = 'ok'\n"
-    "        row['rul_err'] = int(pred_eol - true_eol)\n"
-    "        row['rul_rel_err'] = abs(pred_eol - true_eol) / max(true_eol, 1)\n"
-    "        row['within_20pct'] = bool(\n"
-    '            abs(pred_eol - true_eol) <= 0.2 * max(true_eol, 1))\n'
-    '    return row\n'
-    '\n'
-    '\n'
-    'def _mean_rul_error(rows):\n'
-    "    detected = [abs(row['rul_err']) for row in rows if row['status'] == 'ok']\n"
-    '    return float(np.mean(detected)) if detected else None\n'
     '\n'
     '\n'
     'def _train_one_battery(config, battery_dict, name, stop_flag=None,\n'
@@ -6532,34 +6408,16 @@ _MODULE_SOURCES['core.train'] = (
     '        config, battery_dict, train_names, window, columns, multifeature,\n'
     '        rated_capacity)\n'
     '\n'
-    '    # ── 内层留一电池交叉验证：选超参（验证对象是一块没见过的电池） ──\n'
+    '    # ── 超参：最初样式——不做内层交叉验证，直接用配置里的值 ──\n'
     '    fit_config = _config_with_seed(config, fit_seed)\n'
     '    fit_fn = make_fit_fn(\n'
     '        fit_config, stop_flag=stop_flag, log_callback=log_callback, name=name,\n'
     '        net_class=Net, progress_callback=progress_callback,\n'
     '        feature_scaler=feature_scaler)\n'
     '    grid = hparam_grid(config, mode)\n'
-    "    use_cv = bool(getattr(config, 'inner_cv', True)) and len(train_names) >= 2\n"
-    '    if use_cv:\n'
-    '        hp, cv_score, fold_models = select_hparams(\n'
-    '            battery_dict, train_names, window, fit_fn, grid, rated_capacity,\n'
-    '            start_frac=PRIMARY_START, stop_flag=stop_flag,\n'
-    '            columns=columns if multifeature else None, return_folds=True,\n'
-    '            device=device, feature_scaler=feature_scaler)\n'
-    '        if log_callback:\n'
-    '            score_text = (\n'
-    "                'N/A' if cv_score is None or not np.isfinite(cv_score)\n"
-    "                else f'{cv_score:.4f} Ah')\n"
-    '            log_callback(\n'
-    "                f'[{name}] 内层留一电池交叉验证（{len(train_names)} 折）：'\n"
-    "                f'选定超参 {hp}，滚动 RMSE@50%={score_text}')\n"
-    '    else:\n'
-    '        hp = grid[0]\n'
-    "        cv_score = float('nan')\n"
-    '        # None（而不是空 dict）=「尚未计算」，让 _calibrate_blend 自己去建内层折\n'
-    '        fold_models = None\n'
-    '        if log_callback:\n'
-    "            log_callback(f'[{name}] 快速模式：跳过内层交叉验证，使用 {hp}')\n"
+    '    hp = config_default_hp(config, mode, grid)\n'
+    '    if log_callback:\n'
+    "        log_callback(f'[{name}] 使用配置默认超参 {hp}（最初样式：跳过内层交叉验证）')\n"
     '\n'
     '    check_cancelled(stop_flag)\n'
     '\n'
@@ -6572,31 +6430,6 @@ _MODULE_SOURCES['core.train'] = (
     '    metadata = _model_metadata(\n'
     '        config, window, rated_capacity, scaler, feature_scaler, columns,\n'
     '        multifeature, hp)\n'
-    '    step_fn = make_step_fn(model, metadata, device=device)\n'
-    '\n'
-    '    # ── A3：α 用多步滚动误差标定，且只用「没见过验证电池」的内层折模型 ──\n'
-    '    blend, blend_rmse = _calibrate_blend(\n'
-    '        config, battery_dict, train_names, window, fit_fn, hp, rated_capacity,\n'
-    '        columns, multifeature, scaler=scaler, feature_scaler=feature_scaler,\n'
-    '        fold_models=fold_models, stop_flag=stop_flag, log_callback=log_callback,\n'
-    '        name=name)\n'
-    "    metadata['persistence_blend'] = blend\n"
-    '\n'
-    '    # ── A4：头条指标 = 滚动起点上的递归预测（A12：失效判定可去抖） ──\n'
-    "    starts = tuple(getattr(config, 'rolling_starts', DEFAULT_STARTS))\n"
-    "    debounce = int(getattr(config, 'eol_debounce', 1) or 1)\n"
-    '    rows = rolling_origin_eval(\n'
-    '        target_frames, window, step_fn, threshold, starts, battery=name,\n'
-    '        debounce=debounce)\n'
-    '    baseline_table = _baseline_table(\n'
-    '        config, target_frames, window, threshold, rated_capacity, starts, name,\n'
-    '        debounce)\n'
-    "    persistence = baseline_table.get('平推基线', {})\n"
-    '    baseline_by_start = (\n'
-    "        baseline_rmse_by_start(persistence['rows'])\n"
-    "        if persistence.get('rows') else {})\n"
-    '    rolling_summary = summarize_rolling_rows(rows, baseline_by_start)\n'
-    '    skill = skill_vs_persistence(rows, baseline_by_start)\n'
     '\n'
     '    # ── 诊断信息：一步预测与从初始窗口起的完全递归预测 ──\n'
     '    protocols = evaluate_prediction_protocols(\n'
@@ -6608,17 +6441,10 @@ _MODULE_SOURCES['core.train'] = (
     "    one_step = protocols['one_step']\n"
     "    recursive = protocols['recursive']\n"
     '\n'
-    '    primary = _primary_row(rows, PRIMARY_START) or (rows[0] if rows else None)\n'
-    '    metrics = _metrics_from_row(primary)\n'
-    "    metrics['r2'] = one_step['metrics'].get('r2')\n"
-    "    metrics['pearson'] = one_step['metrics'].get('pearson')\n"
+    '    # ── 头条指标 = 一步预测（最初样式） ──\n'
+    "    metrics = dict(one_step['metrics'])\n"
     "    metrics['re'] = protocols['rul_re']\n"
     "    metrics['re_status'] = recursive['metrics'].get('re_status')\n"
-    '\n'
-    '    forecast = _forecast_for_plot(step_fn, target_frames, window, primary)\n'
-    '    baseline_metrics = _baseline_one_step_metrics(\n'
-    '        one_step, target_frames, window, multifeature, rated_capacity,\n'
-    '        threshold_ratio)\n'
     '\n'
     '    train_data = list(np.asarray(target_frames)[:window, 0]) if multifeature \\\n'
     '        else list(np.asarray(target_frames)[:window])\n'
@@ -6630,9 +6456,8 @@ _MODULE_SOURCES['core.train'] = (
     "        'model': mode,\n"
     "        'training_batteries': tuple(train_names),\n"
     "        'protocol': 'strict_zero_shot',\n"
-    "        'rul_protocol': 'rolling_origin',\n"
+    "        'rul_protocol': 'recursive_future',\n"
     "        'selected_hparams': dict(hp),\n"
-    "        'inner_cv_rmse': (None if not np.isfinite(cv_score) else float(cv_score)),\n"
     "        'scaler': scaler.to_dict(),\n"
     "        'feature_columns': list(columns),\n"
     "        'feature_scaler': (\n"
@@ -6641,24 +6466,6 @@ _MODULE_SOURCES['core.train'] = (
     "        'recursive_prediction': recursive['prediction'].tolist(),\n"
     "        'one_step_metrics': one_step['metrics'],\n"
     "        'recursive_metrics': recursive['metrics'],\n"
-    "        'persistence_blend': float(blend),\n"
-    "        'persistence_blend_rmse': (\n"
-    '            None if blend_rmse is None or not np.isfinite(blend_rmse)\n'
-    '            else float(blend_rmse)),\n'
-    "        'persistence_baseline_metrics': baseline_metrics,\n"
-    "        'rmse_skill_vs_persistence': skill,\n"
-    "        'rolling': rolling_summary,\n"
-    "        'rolling_rows': rows,\n"
-    "        'baselines': {\n"
-    "            key: {k: v for k, v in value.items() if k != 'rows'}\n"
-    '            for key, value in baseline_table.items()\n'
-    '        },\n'
-    "        'baseline_rows': {\n"
-    "            key: value['rows'] for key, value in baseline_table.items()\n"
-    '        },\n'
-    "        'primary_start_frac': PRIMARY_START,\n"
-    "        'forecast_start': (primary['start'] if primary else None),\n"
-    "        'forecast': forecast,\n"
     "        'threshold': float(threshold),\n"
     '    }\n'
     '    return pred_list, metrics, detail\n'
@@ -6671,34 +6478,6 @@ _MODULE_SOURCES['core.train'] = (
     '        return replace(config, seed=seed)\n'
     '    except (TypeError, ValueError):\n'
     '        return config\n'
-    '\n'
-    '\n'
-    'def _primary_row(rows, start_frac):\n'
-    '    for row in rows:\n'
-    "        if abs(row['start_frac'] - start_frac) < 1e-9:\n"
-    '            return row\n'
-    '    return None\n'
-    '\n'
-    '\n'
-    'def _metrics_from_row(row):\n'
-    '    """把滚动起点的一行转成指标字典。"""\n'
-    '    if row is None:\n'
-    "        return {'rmse': None, 'mae': None, 'r2': None, 'pearson': None,\n"
-    "                're': None, 're_status': 'unavailable'}\n"
-    '    return {\n'
-    "        'rmse': float(row['rmse']),\n"
-    "        'mae': float(row['mae']),\n"
-    "        'r2': None,\n"
-    "        'pearson': None,\n"
-    "        're': (\n"
-    "            abs(row['rul_err']) / max(row['true_rul'], 1)\n"
-    "            if row['status'] == 'ok' and row['true_rul'] else None),\n"
-    "        're_status': {\n"
-    "            'ok': 'observed',\n"
-    "            'true_censored': 'observed_censored',\n"
-    "            'pred_censored': 'prediction_censored',\n"
-    "        }.get(row['status'], 'unavailable'),\n"
-    '    }\n'
     '\n'
     '\n'
     'def _fit_scalers(config, battery_dict, train_names, window, columns,\n'
@@ -6763,79 +6542,6 @@ _MODULE_SOURCES['core.train'] = (
     "        metadata['hidden_dim'] = int(getattr(config, 'hidden_dim', 64))\n"
     "        metadata['input_size'] = int(len(columns))\n"
     '    return metadata\n'
-    '\n'
-    '\n'
-    'def _calibrate_blend(config, battery_dict, train_names, window, fit_fn, hp,\n'
-    '                     rated_capacity, columns, multifeature, scaler=None,\n'
-    '                     feature_scaler=None, fold_models=None, stop_flag=None,\n'
-    "                     log_callback=None, name=''):\n"
-    '    """A3：用多步滚动误差 + 内层折模型标定持久性混合系数 α。\n'
-    '\n'
-    '    ``fold_models`` 由 :func:`core.protocol.select_hparams` 的\n'
-    '    ``return_folds=True`` 提供（每个折模型没见过对应留出电池），因此 α 不会被\n'
-    '    「模型见过验证电池」这件事偏向 1。\n'
-    '    """\n'
-    '    if fold_models is None:\n'
-    '        try:\n'
-    '            fold_models = inner_fold_models(\n'
-    '                battery_dict, train_names, window, fit_fn, hp, rated_capacity,\n'
-    '                columns=columns if multifeature else None)\n'
-    '        except (ValueError, KeyError):\n'
-    '            fold_models = {}\n'
-    '\n'
-    '    if not fold_models:\n'
-    '        if log_callback:\n'
-    "            log_callback(f'[{name}] 无法建立内层折模型，α 取 1.0（不做收缩）')\n"
-    '        return 1.0, None\n'
-    '\n'
-    '    if scaler is None:\n'
-    '        scaler = _fit_scalers(\n'
-    '            config, battery_dict, train_names, window, columns, multifeature,\n'
-    '            rated_capacity)[0]\n'
-    "    device = getattr(config, 'device', 'cpu')\n"
-    '\n'
-    '    # 每个验证电池用自己的内层折模型（该模型没见过它）。\n'
-    '    # 折模型是用「原始量纲 + 内部归一化」训练的，所以 step 必须走同一套\n'
-    '    # 映射（model_step_for），与 select_hparams 内部保持一致。\n'
-    '    blend_by_name = {}\n'
-    '    for val_name, fold_model in fold_models.items():\n'
-    '        step_raw = model_step_for(\n'
-    '            fold_model, rated_capacity, device=device,\n'
-    '            feature_scaler=feature_scaler)\n'
-    '        alpha, _ = choose_blend_by_rollout(\n'
-    '            step_raw, battery_dict, [val_name], window,\n'
-    '            starts=(0.5, 0.6), columns=columns if multifeature else None)\n'
-    '        blend_by_name[val_name] = alpha\n'
-    '\n'
-    '    blend = float(np.mean(list(blend_by_name.values()))) if blend_by_name else 1.0\n'
-    '    if log_callback:\n'
-    "        detail = '，'.join(\n"
-    "            f'{key}={value:.2f}' for key, value in blend_by_name.items())\n"
-    '        log_callback(\n'
-    "            f'[{name}] 防过拟合校准系数 α={blend:.3f}'\n"
-    "            f'（多步滚动标定；{detail}；0=平推，1=原模型）')\n"
-    '        if blend < 0.05:\n'
-    '            log_callback(\n'
-    "                f'[{name}] ⚠ 模型未超越持久性基线（α≈0）：'\n"
-    "                '递归预测退化为平推，请以滚动起点指标为准。')\n"
-    '    return blend, None\n'
-    '\n'
-    '\n'
-    'def _forecast_for_plot(step_fn, frames, window, primary):\n'
-    '    """为图表准备递归预测序列（从主预测起点起，直到观测末端）。"""\n'
-    '    if primary is None:\n'
-    '        return []\n'
-    "    start = primary['start']\n"
-    '    steps = len(frames) - start\n'
-    '    if steps <= 0:\n'
-    '        return []\n'
-    '    window_values = frames[start - window:start]\n'
-    '    try:\n'
-    '        forecast = protocol_module.recursive_forecast(\n'
-    '            step_fn, window_values, steps)\n'
-    '    except (ValueError, FloatingPointError):\n'
-    '        return []\n'
-    '    return forecast.tolist()\n'
     '\n'
     '\n'
     'def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None,\n'
@@ -6965,64 +6671,6 @@ _MODULE_SOURCES['core.train'] = (
     '            np.vstack([np.asarray(value, dtype=np.float64)\n'
     '                       for value in values]), axis=0).tolist()\n'
     '\n'
-    '    def mean_scalar(field):\n'
-    '        values = [\n'
-    '            float(item[field]) for item in run_details\n'
-    '            if item.get(field) is not None\n'
-    '            and np.isfinite(item[field])\n'
-    '        ]\n'
-    '        return float(np.mean(values)) if values else None\n'
-    '\n'
-    '    def mean_dict_of_floats(field):\n'
-    '        collected = {}\n'
-    '        for item in run_details:\n'
-    '            for key, value in (item.get(field) or {}).items():\n'
-    '                if isinstance(value, (int, float)) and np.isfinite(value):\n'
-    '                    collected.setdefault(key, []).append(float(value))\n'
-    '        return {key: float(np.mean(values)) for key, values in collected.items()}\n'
-    '\n'
-    '    # 滚动起点汇总：把各种子的行按起点取均值\n'
-    '    rows_by_start = {}\n'
-    '    for item in run_details:\n'
-    "        for row in item.get('rolling_rows', []) or []:\n"
-    "            rows_by_start.setdefault(row['start_frac'], []).append(row)\n"
-    '\n'
-    '    aggregated_rows = []\n'
-    '    for frac, rows in sorted(rows_by_start.items()):\n'
-    '        merged = {\n'
-    "            'start_frac': frac,\n"
-    "            'start': rows[0]['start'],\n"
-    "            'battery': name,\n"
-    "            'rmse': float(np.mean([r['rmse'] for r in rows])),\n"
-    "            'mae': float(np.mean([r['mae'] for r in rows])),\n"
-    "            'true_rul': rows[0]['true_rul'],\n"
-    "            'pred_rul': (\n"
-    "                float(np.mean([r['pred_rul'] for r in rows\n"
-    "                               if r['pred_rul'] is not None]))\n"
-    "                if any(r['pred_rul'] is not None for r in rows) else None),\n"
-    "            'status': rows[0]['status'],\n"
-    "            'rul_err': (\n"
-    "                float(np.mean([r['rul_err'] for r in rows\n"
-    "                               if r['rul_err'] is not None]))\n"
-    "                if any(r['rul_err'] is not None for r in rows) else None),\n"
-    '        }\n'
-    '        aggregated_rows.append(merged)\n'
-    '\n'
-    '    baseline_by_start = {}\n'
-    '    for item in run_details:\n'
-    "        for key, value in (item.get('baselines') or {}).items():\n"
-    "            baseline_by_start.setdefault(key, []).append(value.get('rmse'))\n"
-    '\n'
-    '    baselines = {}\n'
-    '    for key, values in baseline_by_start.items():\n'
-    '        finite = [v for v in values if v is not None and np.isfinite(v)]\n'
-    '        if finite:\n'
-    "            baselines[key] = {'rmse': float(np.mean(finite))}\n"
-    '\n'
-    '    blends = [\n'
-    "        float(item['persistence_blend']) for item in run_details\n"
-    "        if item.get('persistence_blend') is not None\n"
-    '    ]\n'
     '    first = run_details[0] if run_details else {}\n'
     '\n'
     '    detail = {\n'
@@ -7041,30 +6689,17 @@ _MODULE_SOURCES['core.train'] = (
     "        'ci_statistical_object': '同一留一折内的随机种子波动',\n"
     "        'seed_policy': 'all_seed_mean',\n"
     "        'protocol': 'strict_zero_shot',\n"
-    "        'rul_protocol': 'rolling_origin',\n"
+    "        'rul_protocol': 'recursive_future',\n"
     "        'one_step_prediction': mean_protocol_prediction('one_step_prediction'),\n"
     "        'recursive_prediction': mean_protocol_prediction('recursive_prediction'),\n"
     "        'one_step_metrics': mean_protocol_metrics('one_step_metrics'),\n"
     "        'recursive_metrics': mean_protocol_metrics('recursive_metrics'),\n"
-    "        'persistence_blend': float(np.mean(blends)) if blends else 1.0,\n"
-    "        'rmse_skill_vs_persistence': mean_scalar('rmse_skill_vs_persistence'),\n"
-    "        'inner_cv_rmse': mean_scalar('inner_cv_rmse'),\n"
     "        'selected_hparams': first.get('selected_hparams', {}),\n"
     "        'feature_columns': first.get('feature_columns', ['capacity']),\n"
-    "        'rolling_rows': aggregated_rows,\n"
-    "        'rolling': summarize_rolling_rows(aggregated_rows),\n"
-    "        'baselines': baselines,\n"
-    "        'primary_start_frac': first.get('primary_start_frac', PRIMARY_START),\n"
-    "        'forecast_start': first.get('forecast_start'),\n"
-    "        'forecast': mean_protocol_prediction('forecast'),\n"
     "        'threshold': first.get('threshold'),\n"
     "        'training_batteries': first.get('training_batteries', ()),\n"
     "        'run_details': run_details,\n"
     '    }\n'
-    '    # 平推基线的一步指标（供结果表并排展示）\n'
-    "    baseline_metrics = first.get('persistence_baseline_metrics')\n"
-    '    if isinstance(baseline_metrics, dict):\n'
-    "        detail['persistence_baseline_metrics'] = baseline_metrics\n"
     '    return detail\n'
 )
 
@@ -7087,15 +6722,11 @@ _MODULE_SOURCES['core.model_persistence'] = (
     '    FeatureScaler,\n'
     ')\n'
     'from core.model_factory import (\n'
+    '    config_default_hp,\n'
     '    hparam_grid,\n'
     '    make_fit_fn,\n'
     ')\n'
-    'from core.protocol import (\n'
-    '    choose_blend_by_rollout,\n'
-    '    fit_final,\n'
-    '    model_step_for,\n'
-    '    select_hparams,\n'
-    ')\n'
+    'from core.protocol import fit_final\n'
     'from core.cancellation import check_cancelled\n'
     'from utils.config import normalize_model_name\n'
     '\n'
@@ -7476,15 +7107,10 @@ _MODULE_SOURCES['core.model_persistence'] = (
     '\n'
     'def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,\n'
     '                            log_callback=None):\n'
-    '    """选超参 → 用**全部**有效电池的全部窗口定型（与评估路径共用 ``fit_final``）。\n'
+    '    """用**全部**有效电池的全部窗口定型（与评估路径共用 ``fit_final``）。\n'
     '\n'
-    '    改进方案 A2：旧实现自己在 ``model_persistence`` 里重复了一遍 RNN 训练循环、\n'
-    '    RF 分批加树和 XGBoost early stopping，而且「调参用的验证集」是训练电池的\n'
-    '    最后一块 / 后 10%——与评估路径不同，导致「报告的评估指标评估的并不是最终\n'
-    '    部署的那个模型」。\n'
-    '\n'
-    '    现在两条路径共用 :func:`core.protocol.fit_final`，超参由内层留一电池交叉验证\n'
-    '    选出（验证对象是一块没见过的电池，和最终使用场景一致）。\n'
+    '    最初样式：不做内层交叉验证，直接用配置默认超参；不做 α 收缩标定\n'
+    '    （``persistence_blend`` 固定 1.0，预测即原始模型输出）。\n'
     '    """\n'
     '    check_cancelled(stop_flag)\n'
     '    mode = normalize_model_name(config.mode)\n'
@@ -7495,33 +7121,17 @@ _MODULE_SOURCES['core.model_persistence'] = (
     '    multifeature = len(columns) > 1\n'
     '    rated = float(config.rated_capacity)\n'
     '\n'
-    '    # ── 选超参：内层留一电池交叉验证 ──\n'
-    '    # scaler 只用全部有效电池拟合；fit_fn 内部会用它归一化，因此这里传原始量纲。\n'
+    '    # ── scaler 只用全部有效电池拟合；fit_fn 内部会用它归一化，因此这里传原始量纲 ──\n'
     '    final_scaler, feature_scaler = _fit_final_scalers(\n'
     '        config, data, columns, multifeature, rated)\n'
     '    fit_fn = make_fit_fn(\n'
     '        config, stop_flag=stop_flag, log_callback=log_callback,\n'
     "        name='最终模型', net_class=Net, feature_scaler=feature_scaler)\n"
     '    grid = hparam_grid(config, mode)\n'
-    "    device = getattr(config, 'device', 'cpu')\n"
-    '    if len(valid_names) >= 2:\n'
-    '        hp, cv_score, fold_models = select_hparams(\n'
-    '            battery_dict, valid_names, config.window_size, fit_fn, grid, rated,\n'
-    '            start_frac=0.5, stop_flag=stop_flag,\n'
-    '            columns=columns if multifeature else None, return_folds=True,\n'
-    '            device=device, feature_scaler=feature_scaler)\n'
-    '        if log_callback:\n'
-    '            score_text = (\n'
-    "                'N/A' if cv_score is None or not np.isfinite(cv_score)\n"
-    "                else f'{cv_score:.4f} Ah')\n"
-    '            log_callback(\n'
-    "                f'[最终模型] 内层留一电池交叉验证（{len(valid_names)} 折）：'\n"
-    "                f'选定超参 {hp}，滚动 RMSE@50%={score_text}')\n"
-    '    else:\n'
-    '        hp = grid[0]\n'
-    '        fold_models = {}\n'
-    '        if log_callback:\n'
-    "            log_callback(f'[最终模型] 只有一块电池，跳过内层交叉验证，使用 {hp}')\n"
+    '    hp = config_default_hp(config, mode, grid)\n'
+    '    if log_callback:\n'
+    '        log_callback(\n'
+    "            f'[最终模型] 使用配置默认超参 {hp}（最初样式：跳过内层交叉验证）')\n"
     '\n'
     '    check_cancelled(stop_flag)\n'
     '\n'
@@ -7533,22 +7143,17 @@ _MODULE_SOURCES['core.model_persistence'] = (
     '        columns=columns if multifeature else None)\n'
     '    check_cancelled(stop_flag)\n'
     '\n'
-    '    # ── 持久性混合系数：用「没见过验证电池」的内层折模型 + 多步滚动标定 ──\n'
-    '    blend = _final_blend(\n'
-    '        config, battery_dict, valid_names, rated, columns,\n'
-    '        multifeature, feature_scaler, fold_models, log_callback)\n'
-    '\n'
     '    if mode in RECURRENT_MODES:\n'
     "        final_model = final_model.to('cpu')\n"
     '\n'
     '    metadata = _final_training_metadata(\n'
     '        config, final_scaler, valid_names, battery_dict, len(all_x), hp,\n'
     '        feature_scaler=feature_scaler, columns=columns)\n'
-    "    metadata['persistence_blend'] = blend\n"
+    "    metadata['persistence_blend'] = 1.0\n"
     '    if log_callback:\n'
     '        log_callback(\n'
     "            f'[最终模型] 已用全部 {len(valid_names)} 块电池、'\n"
-    "            f'{len(all_x)} 个样本重训，超参={hp}，α={blend:.3f}')\n"
+    "            f'{len(all_x)} 个样本重训，超参={hp}')\n"
     '    return final_model, metadata\n'
     '\n'
     '\n'
@@ -7572,32 +7177,6 @@ _MODULE_SOURCES['core.model_persistence'] = (
     '        combined = np.vstack(frames)\n'
     '        feature_scaler = FeatureScaler().fit(combined)\n'
     '    return scaler, feature_scaler\n'
-    '\n'
-    '\n'
-    'def _final_blend(config, battery_dict, valid_names, rated, columns,\n'
-    '                 multifeature, feature_scaler, fold_models, log_callback):\n'
-    '    """最终模型的 α：与评估路径同一口径（多步滚动 + 内层折模型）。"""\n'
-    '    if not fold_models:\n'
-    '        return 1.0\n'
-    "    device = getattr(config, 'device', 'cpu')\n"
-    '    alphas = {}\n'
-    '    for val_name, fold_model in fold_models.items():\n'
-    '        step_raw = model_step_for(\n'
-    '            fold_model, rated, device=device, feature_scaler=feature_scaler)\n'
-    '        alpha, _ = choose_blend_by_rollout(\n'
-    '            step_raw, battery_dict, [val_name], config.window_size,\n'
-    '            starts=(0.5, 0.6),\n'
-    '            columns=columns if multifeature else None)\n'
-    '        alphas[val_name] = alpha\n'
-    '    blend = float(np.mean(list(alphas.values()))) if alphas else 1.0\n'
-    '    if log_callback:\n'
-    "        detail = '，'.join(f'{k}={v:.2f}' for k, v in alphas.items())\n"
-    "        log_callback(f'[最终模型] 防过拟合校准系数 α={blend:.3f}（{detail}）')\n"
-    '        if blend < 0.05:\n'
-    '            log_callback(\n'
-    "                '[最终模型] ⚠ 模型未超越持久性基线（α≈0）：'\n"
-    "                '预测将退化为平推。')\n"
-    '    return blend\n'
     '\n'
     '\n'
     'def _feature_columns(config):\n'
@@ -9039,7 +8618,7 @@ _MODULE_SOURCES['ui.result_model'] = (
     '``QTableView + QAbstractTableModel + QSortFilterProxyModel``：\n'
     '\n'
     '- 点列头排序（用 ``UserRole`` 里的**原始值**排序，而不是格式化后的字符串）；\n'
-    '- 列包含滚动起点的 RMSE / MAE / 技能分 / 预测 RUL / 真实 RUL / RUL 误差；\n'
+    '- 列包含一步预测的 RMSE / MAE、预测 / 真实 EOL 与 RUL 误差；\n'
     '- 末尾一行**汇总**：跨电池 mean ± std（n = 电池数）+ bootstrap 区间；\n'
     '- 技能分 < 0.05 的单元格用 warning 色并加 ⚠（A3）；\n'
     '- 数值保留 4 位小数并带单位。\n'
@@ -9068,11 +8647,11 @@ _MODULE_SOURCES['ui.result_model'] = (
     '#: 每列的完整说明（工具提示）\n'
     'COLUMN_HELP = {\n'
     "    'name': '电池名称',\n"
-    "    'rmse': '滚动预测起点上的递归预测 RMSE（Ah）',\n"
-    "    'mae': '滚动预测起点上的递归预测 MAE（Ah）',\n"
+    "    'rmse': '一步预测 RMSE（Ah）：每个点都用截至该点的真实历史',\n"
+    "    'mae': '一步预测 MAE（Ah）',\n"
     "    'skill': '技能分 = 1 − RMSE模型 / RMSE平推；< 0.05 表示未超越平推基线',\n"
-    "    'pred_rul': '模型预测的剩余寿命（循环数）',\n"
-    "    'true_rul': '真实剩余寿命（循环数）',\n"
+    "    'pred_rul': '递归预测首次跌破失效阈值的循环数',\n"
+    "    'true_rul': '实测容量首次跌破失效阈值的循环数',\n"
     "    'rul_err': 'RUL 误差 = 预测 − 真实；正值表示预测偏保守',\n"
     "    'status': '失效检出状态：EOL 是否落在预测期内',\n"
     '}\n'
@@ -9122,8 +8701,9 @@ _MODULE_SOURCES['ui.result_model'] = (
     'def rows_from_details(detail_list, start_frac=None, baselines=None):\n'
     '    """把 ``detail`` 列表转成结果表行。\n'
     '\n'
-    '    ``start_frac`` 指定看哪个滚动起点（默认用每块电池的主起点）。\n'
-    "    ``baselines`` 是 ``{基线名: {'rmse': ...}}``，会作为额外的行插在后面。\n"
+    '    ``start_frac`` 保留以兼容旧调用方；最初样式的评估不再有滚动起点，\n'
+    "    该参数被忽略。``baselines`` 是 ``{基线名: {'rmse': ...}}``，会作为额外的行\n"
+    '    插在后面。\n'
     '    """\n'
     '    rows = []\n'
     '    for detail in detail_list or []:\n'
@@ -9146,14 +8726,31 @@ _MODULE_SOURCES['ui.result_model'] = (
     '    return rows\n'
     '\n'
     '\n'
-    'def _row_from_detail(detail, start_frac):\n'
+    'def _first_cross(values, threshold):\n'
+    '    """``values`` 中第一个低于 ``threshold`` 的下标；从未低于则返回 None。"""\n'
+    '    if threshold is None:\n'
+    '        return None\n'
+    '    for index, value in enumerate(values):\n'
+    '        if value is not None and value < threshold:\n'
+    '            return index\n'
+    '    return None\n'
+    '\n'
+    '\n'
+    'def _row_from_detail(detail, start_frac=None):\n'
+    '    """结果表的一行：一步预测指标 + 由递归预测推出的 RUL。\n'
+    '\n'
+    '    最初样式没有滚动起点，因此 RMSE/MAE 取 ``one_step_metrics``；\n'
+    '    RUL 从「实测序列」与「递归预测序列」各自首次跌破失效阈值的位置相减得到。\n'
+    '    """\n'
     '    if not isinstance(detail, dict):\n'
     '        return None\n'
     "    battery = detail.get('battery', '?')\n"
+    "    one_step = detail.get('one_step_metrics') or {}\n"
+    "    recursive = detail.get('recursive_metrics') or {}\n"
     '    row = {\n'
     "        'name': battery,\n"
-    "        'rmse': detail.get('rmse'),\n"
-    "        'mae': detail.get('mae'),\n"
+    "        'rmse': detail.get('rmse', one_step.get('rmse')),\n"
+    "        'mae': detail.get('mae', one_step.get('mae')),\n"
     "        'skill': detail.get('rmse_skill_vs_persistence'),\n"
     "        'pred_rul': None,\n"
     "        'true_rul': None,\n"
@@ -9161,57 +8758,27 @@ _MODULE_SOURCES['ui.result_model'] = (
     "        'status': detail.get('re_status', 'unavailable'),\n"
     '    }\n'
     '\n'
-    '    # 优先用滚动起点里对应那一行\n'
-    '    target = start_frac if start_frac is not None else detail.get(\n'
-    "        'primary_start_frac', 0.5)\n"
-    "    rolling = detail.get('rolling') or {}\n"
-    "    per_start = rolling.get('per_start') or {}\n"
-    '    entry = None\n'
-    '    if per_start:\n'
-    '        if target is not None:\n'
-    '            for frac, value in per_start.items():\n'
-    '                if abs(float(frac) - float(target)) < 1e-9:\n'
-    '                    entry = value\n'
-    '                    break\n'
-    '        if entry is None:\n'
-    '            entry = next(iter(per_start.values()))\n'
-    '    if entry:\n'
-    "        row['rmse'] = entry.get('rmse', row['rmse'])\n"
-    "        row['mae'] = entry.get('mae', row['mae'])\n"
-    "        if entry.get('skill') is not None:\n"
-    "            row['skill'] = entry['skill']\n"
-    "        row['mean_abs_rul_err'] = entry.get('mean_abs_rul_err')\n"
-    "        row['detected'] = entry.get('detected')\n"
-    "        row['needs_detection'] = entry.get('needs_detection')\n"
-    "        if entry.get('detected'):\n"
-    "            row['status'] = 'ok'\n"
-    "        elif entry.get('needs_detection'):\n"
-    "            row['status'] = 'pred_censored'\n"
-    '        else:\n'
-    "            row['status'] = 'true_censored'\n"
-    '\n'
-    '    # RUL 明细：优先取该起点的原始行\n'
-    "    rows = detail.get('rolling_rows') or []\n"
-    '    picked = None\n'
-    '    for item in rows:\n'
-    '        if target is not None and abs(\n'
-    "                float(item.get('start_frac', -1)) - float(target)) < 1e-9:\n"
-    '            picked = item\n'
-    '            break\n'
-    '    if picked is None and rows:\n'
-    '        picked = rows[0]\n'
-    '    if picked:\n'
-    "        row['true_rul'] = picked.get('true_rul')\n"
-    "        row['pred_rul'] = (\n"
-    "            None if picked.get('pred_rul') is None\n"
-    "            else int(round(picked['pred_rul'])))\n"
-    "        row['rul_err'] = (\n"
-    "            None if picked.get('rul_err') is None\n"
-    "            else int(round(picked['rul_err'])))\n"
-    "        if picked.get('status'):\n"
-    "            row['status'] = picked['status']\n"
-    "    if row.get('rul_err') is None:\n"
-    "        row['rul_err'] = detail.get('rul_err')\n"
+    "    threshold = detail.get('threshold')\n"
+    "    measured = detail.get('measured') or []\n"
+    "    recursive_prediction = detail.get('recursive_prediction') or []\n"
+    "    true_eol = detail.get('measured_failure_position')\n"
+    "    pred_eol = detail.get('predicted_failure_position')\n"
+    '    if true_eol is None and measured:\n'
+    '        true_eol = _first_cross(measured, threshold)\n'
+    '    if pred_eol is None and recursive_prediction:\n'
+    '        pred_eol = _first_cross(recursive_prediction, threshold)\n'
+    '    if true_eol is not None and pred_eol is not None:\n'
+    "        row['true_rul'] = int(true_eol)\n"
+    "        row['pred_rul'] = int(pred_eol)\n"
+    "        row['rul_err'] = int(pred_eol - true_eol)\n"
+    "        row['status'] = 'ok'\n"
+    '    elif true_eol is not None:\n'
+    "        row['true_rul'] = int(true_eol)\n"
+    "        row['status'] = 'pred_censored'\n"
+    "    elif measured or detail.get('measured_failure_status') == 'not_observed':\n"
+    "        row['status'] = 'true_censored'\n"
+    '    elif recursive_prediction:\n'
+    "        row['status'] = detail.get('re_status', 'unavailable')\n"
     '\n'
     "    row['status_label'] = STATUS_LABELS.get(\n"
     "        row['status'], row.get('status') or '—')\n"
@@ -9515,6 +9082,9 @@ _MODULE_SOURCES['ui.chart_show'] = (
     '# 会在每次绘制时重新查询轴对象，与本环境的 PyQt6 + offscreen matplotlib\n'
     '# 组合一起会触发原生访问违例（详见 _apply_ticks）。\n'
     'from matplotlib.ticker import FuncFormatter\n'
+    '\n'
+    '#: 图例字号相对默认字号的缩放（要求「缩小三分之一」→ 保留 2/3）。\n'
+    'LEGEND_FONT_SCALE = 2.0 / 3.0\n'
     '\n'
     'from PyQt6.QtCore import Qt, QSize, QPoint, QTimer, QEvent, QObject\n'
     'from PyQt6.QtGui import (\n'
@@ -11301,12 +10871,20 @@ _MODULE_SOURCES['ui.chart_show'] = (
     '                self.draw_idle()\n'
     '\n'
     '    def _make_legend_interactive(self, ax):\n'
-    '        """设置图例可拖动、可编辑、无边框"""\n'
+    '        """设置图例可拖动、可编辑、无边框；字号取默认的 2/3。"""\n'
     '        legend = ax.legend()\n'
     '        legend.set_draggable(True)\n'
     '        legend.set_frame_on(False)\n'
-    '        for text in legend.get_texts():\n'
+    '        texts = legend.get_texts()\n'
+    '        base_size = (texts[0].get_fontsize() if texts\n'
+    "                     else mpl.rcParams.get('font.size', 10))\n"
+    '        try:\n'
+    '            legend_size = float(base_size) * LEGEND_FONT_SCALE\n'
+    '        except (TypeError, ValueError):\n'
+    '            legend_size = 10.0 * LEGEND_FONT_SCALE\n'
+    '        for text in texts:\n'
     "            text.set_color(self._tokens['text'])\n"
+    '            text.set_fontsize(legend_size)\n'
     '            text.set_picker(True)\n'
     '\n'
     '    def _on_legend_pick(self, event):\n'
@@ -11349,7 +10927,10 @@ _MODULE_SOURCES['ui.chart_show'] = (
     '\n'
     '    @staticmethod\n'
     '    def _primary_rolling_row(detail):\n'
-    '        """主预测起点的滚动行：先对齐 forecast_start，再退回 0.5 起点 / 首个有效行。"""\n'
+    '        """主预测起点的滚动行：先对齐 forecast_start，再退回 0.5 起点 / 首个有效行。\n'
+    '\n'
+    '        最初样式的评估不再产出 ``rolling_rows``，此时返回 None，调用方自行回退。\n'
+    '        """\n'
     "        rows = detail.get('rolling_rows') or []\n"
     '        if not rows:\n'
     '            return None\n'
@@ -11375,31 +10956,27 @@ _MODULE_SOURCES['ui.chart_show'] = (
     '    def _eol_positions(self, detail, measured, forecast, threshold_val):\n'
     '        """返回 ``(真实 EOL 下标, 预测 EOL 下标)``；判不出来时该位为 None。\n'
     '\n'
-    '        优先用滚动行的 ``true_rul`` / ``pred_rul``（相对预测起点），缺失时才退回\n'
-    '        用 :func:`_first_cross` 在实测 / 预测序列上找第一次跌破阈值的位置。\n'
+    '        先用结果里已算好的失效位置（``measured_failure_position`` /\n'
+    '        ``predicted_failure_position``），缺失时才退回用 :func:`_first_cross`\n'
+    '        在实测 / 预测序列上找第一次跌破阈值的位置。\n'
     '        """\n'
-    '        row = self._primary_rolling_row(detail)\n'
-    "        start = detail.get('forecast_start')\n"
-    '        true_index = pred_index = None\n'
-    '        if row is not None:\n'
-    "            base = row.get('start')\n"
-    '            if base is None:\n'
-    '                base = start if start is not None else 0\n'
-    '            base = int(base)\n'
-    "            true_rul = row.get('true_rul')\n"
-    "            pred_rul = row.get('pred_rul')\n"
-    '            if true_rul is not None:\n'
-    '                true_index = base + int(true_rul)\n'
-    '            if pred_rul is not None:\n'
-    '                pred_index = base + int(pred_rul)\n'
+    "        true_index = detail.get('measured_failure_position')\n"
+    "        pred_index = detail.get('predicted_failure_position')\n"
     '        if true_index is None:\n'
     '            true_index = _first_cross(measured, threshold_val)\n'
-    '        if pred_index is None and forecast:\n'
-    '            offset = _first_cross(forecast, threshold_val)\n'
-    '            if offset is not None:\n'
-    '                base = start if start is not None else max(\n'
-    '                    0, len(measured) - len(forecast))\n'
-    '                pred_index = int(base) + int(offset)\n'
+    '        if pred_index is None:\n'
+    "            recursive = _as_float_list(detail.get('recursive_prediction'))\n"
+    '            if recursive:\n'
+    '                offset = _first_cross(recursive, threshold_val)\n'
+    '                if offset is not None:\n'
+    '                    pred_index = int(offset)\n'
+    '            elif forecast:\n'
+    '                offset = _first_cross(forecast, threshold_val)\n'
+    '                if offset is not None:\n'
+    "                    start = detail.get('forecast_start')\n"
+    '                    base = (start if start is not None\n'
+    '                            else max(0, len(measured) - len(forecast)))\n'
+    '                    pred_index = int(base) + int(offset)\n'
     '        if pred_index is None:\n'
     '            pred_index = true_index\n'
     '        return true_index, pred_index\n'
@@ -11624,27 +11201,29 @@ _MODULE_SOURCES['ui.chart_show'] = (
     "                        fontsize=8.5, color=tokens['chart_forecast'],\n"
     "                        ha='left', va='top', annotation_clip=False)\n"
     '            else:\n'
-    '                # 没有 forecast 时退回老行为：递归预测序列 → 一步预测序列。\n'
-    "                recursive = _as_float_list(detail.get('recursive_prediction'))\n"
-    '                if recursive:\n'
-    '                    base = max(0, len(measured) - len(recursive))\n'
-    '                    recursive_x = [self._index_to_cycle(cycles, base + i)\n'
-    '                                   for i in range(len(recursive))]\n'
-    '                    ax.plot(recursive_x, recursive,\n'
-    "                            color=tokens['chart_forecast'], linewidth=2.0,\n"
-    "                            linestyle='--', label='预测值（递归）', zorder=4)\n"
+    '                # 没有 forecast 时退回老行为：一步预测序列 → 递归预测序列。\n'
+    '                series = _as_float_list(\n'
+    '                    prediction_by_battery.get(battery_name))\n'
+    '                if series and len(measured):\n'
+    '                    if len(series) < len(measured):\n'
+    '                        series = series + [np.nan] * (\n'
+    '                            len(measured) - len(series))\n'
+    '                    elif len(series) > len(measured):\n'
+    '                        series = series[:len(measured)]\n'
+    "                    ax.plot(cycles, series, color=tokens['chart_forecast'],\n"
+    "                            linewidth=2.0, linestyle='--',\n"
+    "                            label='预测值', zorder=4)\n"
     '                else:\n'
-    '                    series = _as_float_list(\n'
-    '                        prediction_by_battery.get(battery_name))\n'
-    '                    if series and len(measured):\n'
-    '                        if len(series) < len(measured):\n'
-    '                            series = series + [np.nan] * (\n'
-    '                                len(measured) - len(series))\n'
-    '                        elif len(series) > len(measured):\n'
-    '                            series = series[:len(measured)]\n'
-    "                        ax.plot(cycles, series, color=tokens['chart_forecast'],\n"
-    "                                linewidth=2.0, linestyle='--',\n"
-    "                                label='预测值', zorder=4)\n"
+    '                    recursive = _as_float_list(\n'
+    "                        detail.get('recursive_prediction'))\n"
+    '                    if recursive:\n'
+    '                        base = max(0, len(measured) - len(recursive))\n'
+    '                        recursive_x = [\n'
+    '                            self._index_to_cycle(cycles, base + i)\n'
+    '                            for i in range(len(recursive))]\n'
+    '                        ax.plot(recursive_x, recursive,\n'
+    "                                color=tokens['chart_forecast'], linewidth=2.0,\n"
+    "                                linestyle='--', label='预测值（递归）', zorder=4)\n"
     '\n'
     '            # ── 失效：朱砂虚线 ──\n'
     "            ax.axhline(y=threshold_val, color=tokens['chart_threshold'],\n"
@@ -14115,18 +13694,10 @@ _MODULE_SOURCES['ui.main_window'] = (
     '        self.result_view.setMinimumHeight(180)\n'
     '        self.result_container_layout.addWidget(self.result_view)\n'
     '\n'
-    '        # 起点选择 + 导出 CSV（U1.6）\n'
+    '        # 导出 CSV（U1.6）\n'
     '        result_tools = QHBoxLayout()\n'
     '        result_tools.setContentsMargins(0, 0, 0, 0)\n'
     '        result_tools.setSpacing(6)\n'
-    '        self.start_frac_combo = QComboBox()\n'
-    "        self.start_frac_combo.setAccessibleName('选择滚动预测起点')\n"
-    '        self.start_frac_combo.currentIndexChanged.connect(\n'
-    '            self._on_start_frac_changed)\n'
-    "        start_label = QLabel('预测起点')\n"
-    "        start_label.setProperty('role', 'muted')\n"
-    '        result_tools.addWidget(start_label)\n'
-    '        result_tools.addWidget(self.start_frac_combo)\n'
     '        result_tools.addStretch(1)\n'
     "        self.copy_table_btn = QPushButton('复制表格')\n"
     "        self.copy_table_btn.setProperty('role', 'ghost')\n"
@@ -15154,15 +14725,9 @@ _MODULE_SOURCES['ui.main_window'] = (
     '            battery_data = self.worker.battery_dict.get(name, {})\n'
     '            measured = np.asarray(\n'
     "                battery_data.get('capacity', pred), dtype=np.float64)\n"
-    '            # A4：失效语义基于滚动起点的递归预测（而不是一步预测）\n'
+    '            # 失效语义基于递归预测（从初始窗口起、不使用未来真实值）\n'
     "            recursive = item.get('recursive_prediction')\n"
-    "            forecast = item.get('forecast')\n"
-    '            if forecast:\n'
-    '                failure_prediction = forecast\n'
-    '                prediction_start = int(\n'
-    "                    item.get('forecast_start', len(measured) - len(forecast)))\n"
-    "                item['failure_cycle_protocol'] = 'rolling_origin'\n"
-    '            elif recursive is not None:\n'
+    '            if recursive is not None:\n'
     '                failure_prediction = recursive\n'
     '                prediction_start = len(measured) - len(recursive)\n'
     "                item['failure_cycle_protocol'] = 'recursive_future'\n"
@@ -15308,7 +14873,7 @@ _MODULE_SOURCES['ui.main_window'] = (
     '            widget = getattr(self, name, None)\n'
     '            if widget is not None:\n'
     '                widget.setVisible(False)\n'
-    "        for name in ('copy_table_btn', 'csv_btn', 'start_frac_combo'):\n"
+    "        for name in ('copy_table_btn', 'csv_btn'):\n"
     '            widget = getattr(self, name, None)\n'
     '            if widget is not None:\n'
     '                widget.setVisible(False)\n'
@@ -15365,7 +14930,7 @@ _MODULE_SOURCES['ui.main_window'] = (
     '                widget.setParent(None)\n'
     '                widget.deleteLater()\n'
     "        for name in ('result_view', 'result_notes', 'copy_table_btn',\n"
-    "                     'csv_btn', 'start_frac_combo'):\n"
+    "                     'csv_btn'):\n"
     '            widget = getattr(self, name, None)\n'
     '            if widget is not None:\n'
     '                widget.setVisible(True)\n'
@@ -15379,41 +14944,10 @@ _MODULE_SOURCES['ui.main_window'] = (
     '        self._last_detail_list = list(detail_list or [])\n'
     '        # 恢复被状态横幅隐藏的结果表与工具行\n'
     '        self.clear_result_display()\n'
-    '        self._refresh_start_frac_options(self._last_detail_list)\n'
     '        self._rebuild_result_rows()\n'
     '        self._update_result_summary(\n'
     '            self._last_detail_list, elapsed,\n'
     '            selected_metric or self.metric_combo.currentText())\n'
-    '\n'
-    '    def _refresh_start_frac_options(self, detail_list):\n'
-    '        """按当前结果里实际存在的滚动起点填充下拉框。"""\n'
-    '        fracs = set()\n'
-    '        for item in detail_list or []:\n'
-    "            rolling = (item or {}).get('rolling') or {}\n"
-    "            fracs.update(rolling.get('per_start') or {})\n"
-    '        options = sorted(float(f) for f in fracs)\n'
-    "        combo = getattr(self, 'start_frac_combo', None)\n"
-    '        if combo is None:\n'
-    '            return\n'
-    '        blocker = QSignalBlocker(combo)\n'
-    '        combo.clear()\n'
-    '        for frac in options:\n'
-    "            combo.addItem(f'{frac:.0%}', frac)\n"
-    '        primary = next(\n'
-    "            (item.get('primary_start_frac') for item in detail_list\n"
-    "             if item.get('primary_start_frac') is not None), None)\n"
-    '        if primary is not None:\n'
-    '            index = combo.findData(float(primary))\n'
-    '            if index >= 0:\n'
-    '                combo.setCurrentIndex(index)\n'
-    '        del blocker\n'
-    '\n'
-    '    def _current_start_frac(self):\n'
-    "        combo = getattr(self, 'start_frac_combo', None)\n"
-    '        if combo is None or combo.count() == 0:\n'
-    '            return None\n'
-    '        data = combo.currentData()\n'
-    '        return None if data is None else float(data)\n'
     '\n'
     '    def _baseline_rows(self, detail_list):\n'
     '        """收集基线（平推 / 线性外推 / 双指数）用于并排展示（A9）。"""\n'
@@ -15435,7 +14969,6 @@ _MODULE_SOURCES['ui.main_window'] = (
     '            return\n'
     '        rows = rows_from_details(\n'
     '            detail_list,\n'
-    '            start_frac=self._current_start_frac(),\n'
     '            baselines=self._baseline_rows(detail_list),\n'
     '        )\n'
     '        self.result_model.set_tokens(theme_tokens(self._theme_mode))\n'
@@ -15476,8 +15009,7 @@ _MODULE_SOURCES['ui.main_window'] = (
     '        ]\n'
     '        if alpha_values and min(alpha_values) < 0.05:\n'
     '            notes.append(\n'
-    "                '⚠ 有电池的持久性混合系数 α < 0.05：模型未超越平推基线，'\n"
-    "                '递归预测已退化为水平线。')\n"
+    "                '⚠ 有电池的持久性混合系数 α < 0.05：模型未超越平推基线。')\n"
     '        # 置信区间口径说明：它只是同一留一折内的随机种子波动\n'
     "        if any(int(item.get('n_seeds', 1)) > 1 for item in detail_list):\n"
     '            notes.append(\n'
@@ -15488,10 +15020,6 @@ _MODULE_SOURCES['ui.main_window'] = (
     '            self.result_notes.setVisible(True)\n'
     '        else:\n'
     '            self.result_notes.setVisible(False)\n'
-    '\n'
-    '    def _on_start_frac_changed(self, _index):\n'
-    "        if getattr(self, '_last_detail_list', None):\n"
-    '            self._rebuild_result_rows()\n'
     '\n'
     '    def _copy_result_table(self):\n'
     '        """把当前结果表复制到剪贴板（Tab 分隔，可直接粘进 Excel）。"""\n'

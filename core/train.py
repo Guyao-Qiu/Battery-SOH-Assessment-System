@@ -1,14 +1,9 @@
-"""留一电池评估：统一的「选超参 → 重训 → 滚动起点评估」协议。
+"""留一电池评估：最初的「一步预测」协议。
 
-改进方案 A2 / A3 / A4 的落地：
-
-- **A2**：评估用的模型与部署用的模型走同一个 ``fit_final``——用**全部训练电池的
-  全部窗口**训练。旧流程把每块训练电池切成「前 80% 训练 + 后 20% 验证」，
-  而寿命末段（膝点）恰好落在后 20%，模型从没见过寿命末段却被要求预测失效点。
-- **A3**：持久性混合系数 α 用**多步滚动误差**标定，且只用「没见过该验证电池」的
-  内层折模型，避免一步误差标定、递归多步使用造成的坍缩。
-- **A4**：头条指标改为**滚动预测起点**（40%–70%）上的递归预测误差，一步指标
-  降级为诊断信息；同时并排给出「平推 / 线性外推 / 双指数」三条基线。
+- 评估用的模型与部署用的模型走同一个 ``fit_final``——用**全部训练电池的
+  全部窗口**定型。
+- 头条指标 = **一步预测**（每个点都用截至该点的真实历史），递归预测仅作为
+  诊断信息一并报告；不再做 α 收缩标定与滚动起点评估。
 """
 
 import numpy as np
@@ -28,30 +23,14 @@ from core.evaluate import calc_all_metrics, confidence_interval
 from core.cancellation import check_cancelled
 from core.progress import make_progress_event
 from core.model_factory import (
+    config_default_hp,
     hparam_grid,
     make_fit_fn,
-    make_step_fn,
 )
-from core.protocol import model_step_for
+from core.protocol import fit_final
 from core import protocol as protocol_module
-from core.protocol import (
-    DEFAULT_STARTS,
-    choose_blend_by_rollout,
-    fit_final,
-    inner_fold_models,
-    baseline_rmse_by_start,
-    rolling_origin_eval,
-    select_hparams,
-    skill_vs_persistence,
-    summarize_rolling_rows,
-)
-from core.baselines import BASELINES
 #: 模块级 ``Net``：保持既有测试/扩展点可用（可被 mock 替换）
 from models.rnn_model import Net  # noqa: F401
-
-
-#: 头条指标使用的预测起点（寿命的 50%）
-PRIMARY_START = 0.5
 
 
 def _feature_columns(config):
@@ -89,10 +68,8 @@ def evaluate_prediction_protocols(sequence, window_size, predict_batch,
                                   rated_capacity, threshold_ratio):
     """评估「用真实历史的一步预测」与「从初始窗口起的完全递归预测」。
 
-    这两个协议**分开报告**：一步预测每一步都用真实历史，误差不累积，天然接近
-    「平推」的好成绩，区分不出模型好坏；递归预测才是真实使用场景。
-
-    头条指标请看 :func:`rolling_origin_eval` 的滚动起点结果。
+    这两个协议**分开报告**：一步预测每一步都用真实历史，误差不累积；
+    递归预测从初始窗口一路外推，用于观察误差累积形态。头条指标取一步预测。
     """
     one_truth, one_prediction = generate_one_step_predictions(
         sequence, window_size, predict_batch)
@@ -115,124 +92,6 @@ def evaluate_prediction_protocols(sequence, window_size, predict_batch,
         },
         'rul_re': recursive_metrics['re'],
     }
-
-
-def _baseline_one_step_metrics(one_step, target_frames, window, multifeature,
-                               rated_capacity, threshold_ratio):
-    """「平推」基线的一步预测指标（供结果表并排展示，A3/A9）。
-
-    平推的一步预测就是窗口末值，因此与 ``one_step['truth']`` 逐位对齐。
-    """
-    truth = np.asarray(one_step.get('truth', []), dtype=np.float64).reshape(-1)
-    if len(truth) == 0:
-        return {}
-    frames = np.asarray(target_frames, dtype=np.float64)
-    if multifeature:
-        frames = frames[:, 0]
-    windows = frames[:-1] if len(frames) == len(truth) + 1 else frames[:len(truth)]
-    persistence = windows if len(windows) == len(truth) else np.full(
-        len(truth), frames[0] if len(frames) else 0.0)
-    try:
-        return calc_all_metrics(
-            truth, persistence, rated_capacity, threshold_ratio)
-    except ValueError:
-        return {}
-
-
-def _capacity_only_step(step_fn):
-    """把「逐步」基线包装成只吃容量通道的 step_fn。
-
-    基线（平推 / 线性外推）只关心容量序列，但多特征帧的窗口是 ``(1, W, F)``；
-    这里统一截出容量列，让基线在多特征配置下也能评估。
-    """
-    def wrapped(windows):
-        array = np.asarray(windows)
-        if array.ndim == 3:
-            array = array[:, :, 0]
-        return step_fn(array)
-
-    return wrapped
-
-
-def _baseline_table(config, frames, window, threshold, rated_capacity,
-                    starts=DEFAULT_STARTS, name='', debounce=1):
-    """在同一组滚动起点上评估三条经验基线（平推 / 线性外推 / 双指数）。"""
-    table = {}
-    for baseline_name, spec in BASELINES.items():
-        try:
-            if spec['kind'] == 'step':
-                rows = rolling_origin_eval(
-                    frames, window, _capacity_only_step(spec['fn']), threshold,
-                    starts, battery=name, debounce=debounce)
-            else:
-                rows = _direct_baseline_rows(
-                    spec['fn'], frames, window, threshold, starts, name,
-                    debounce)
-        except (ValueError, FloatingPointError):
-            continue
-        if rows:
-            table[baseline_name] = {
-                'kind': spec['kind'],
-                'rows': rows,
-                'rmse': float(np.mean([row['rmse'] for row in rows])),
-                'mean_abs_rul_err': _mean_rul_error(rows),
-                'detected': len([row for row in rows if row['status'] == 'ok']),
-            }
-    return table
-
-
-def _direct_baseline_rows(direct_fn, frames, window, threshold, starts, name,
-                          debounce=1):
-    """直接多步基线：在起点拟合一次，整段外推（不逐步重拟合）。"""
-    array = np.asarray(frames, dtype=np.float64)
-    if array.ndim == 1:
-        array = array.reshape(-1, 1)
-    rows = []
-    for frac in starts:
-        start = int(len(array) * frac)
-        if start < window or start >= len(array) - 1:
-            continue
-        truth = array[start:, 0]
-        prediction = np.asarray(
-            direct_fn(array[start - window:start, 0], len(truth)),
-            dtype=np.float64).reshape(-1)
-        rows.append(_score_row(
-            frac, start, name, truth, prediction, threshold, debounce))
-    return rows
-
-
-def _score_row(frac, start, name, truth, prediction, threshold, debounce=1):
-    """把一段真实 / 预测序列打分（与 ``rolling_origin_eval`` 同一口径）。"""
-    true_eol = protocol_module.first_cross(truth, threshold, debounce)
-    pred_eol = protocol_module.first_cross(prediction, threshold, debounce)
-    row = {
-        'start_frac': float(frac),
-        'start': int(start),
-        'battery': name,
-        'rmse': float(np.sqrt(np.mean((prediction - truth) ** 2))),
-        'mae': float(np.mean(np.abs(prediction - truth))),
-        'true_rul': true_eol,
-        'pred_rul': pred_eol,
-        'rul_err': None,
-        'rul_rel_err': None,
-        'within_20pct': None,
-    }
-    if true_eol is None:
-        row['status'] = 'true_censored'
-    elif pred_eol is None:
-        row['status'] = 'pred_censored'
-    else:
-        row['status'] = 'ok'
-        row['rul_err'] = int(pred_eol - true_eol)
-        row['rul_rel_err'] = abs(pred_eol - true_eol) / max(true_eol, 1)
-        row['within_20pct'] = bool(
-            abs(pred_eol - true_eol) <= 0.2 * max(true_eol, 1))
-    return row
-
-
-def _mean_rul_error(rows):
-    detected = [abs(row['rul_err']) for row in rows if row['status'] == 'ok']
-    return float(np.mean(detected)) if detected else None
 
 
 def _train_one_battery(config, battery_dict, name, stop_flag=None,
@@ -279,34 +138,16 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None,
         config, battery_dict, train_names, window, columns, multifeature,
         rated_capacity)
 
-    # ── 内层留一电池交叉验证：选超参（验证对象是一块没见过的电池） ──
+    # ── 超参：最初样式——不做内层交叉验证，直接用配置里的值 ──
     fit_config = _config_with_seed(config, fit_seed)
     fit_fn = make_fit_fn(
         fit_config, stop_flag=stop_flag, log_callback=log_callback, name=name,
         net_class=Net, progress_callback=progress_callback,
         feature_scaler=feature_scaler)
     grid = hparam_grid(config, mode)
-    use_cv = bool(getattr(config, 'inner_cv', True)) and len(train_names) >= 2
-    if use_cv:
-        hp, cv_score, fold_models = select_hparams(
-            battery_dict, train_names, window, fit_fn, grid, rated_capacity,
-            start_frac=PRIMARY_START, stop_flag=stop_flag,
-            columns=columns if multifeature else None, return_folds=True,
-            device=device, feature_scaler=feature_scaler)
-        if log_callback:
-            score_text = (
-                'N/A' if cv_score is None or not np.isfinite(cv_score)
-                else f'{cv_score:.4f} Ah')
-            log_callback(
-                f'[{name}] 内层留一电池交叉验证（{len(train_names)} 折）：'
-                f'选定超参 {hp}，滚动 RMSE@50%={score_text}')
-    else:
-        hp = grid[0]
-        cv_score = float('nan')
-        # None（而不是空 dict）=「尚未计算」，让 _calibrate_blend 自己去建内层折
-        fold_models = None
-        if log_callback:
-            log_callback(f'[{name}] 快速模式：跳过内层交叉验证，使用 {hp}')
+    hp = config_default_hp(config, mode, grid)
+    if log_callback:
+        log_callback(f'[{name}] 使用配置默认超参 {hp}（最初样式：跳过内层交叉验证）')
 
     check_cancelled(stop_flag)
 
@@ -319,31 +160,6 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None,
     metadata = _model_metadata(
         config, window, rated_capacity, scaler, feature_scaler, columns,
         multifeature, hp)
-    step_fn = make_step_fn(model, metadata, device=device)
-
-    # ── A3：α 用多步滚动误差标定，且只用「没见过验证电池」的内层折模型 ──
-    blend, blend_rmse = _calibrate_blend(
-        config, battery_dict, train_names, window, fit_fn, hp, rated_capacity,
-        columns, multifeature, scaler=scaler, feature_scaler=feature_scaler,
-        fold_models=fold_models, stop_flag=stop_flag, log_callback=log_callback,
-        name=name)
-    metadata['persistence_blend'] = blend
-
-    # ── A4：头条指标 = 滚动起点上的递归预测（A12：失效判定可去抖） ──
-    starts = tuple(getattr(config, 'rolling_starts', DEFAULT_STARTS))
-    debounce = int(getattr(config, 'eol_debounce', 1) or 1)
-    rows = rolling_origin_eval(
-        target_frames, window, step_fn, threshold, starts, battery=name,
-        debounce=debounce)
-    baseline_table = _baseline_table(
-        config, target_frames, window, threshold, rated_capacity, starts, name,
-        debounce)
-    persistence = baseline_table.get('平推基线', {})
-    baseline_by_start = (
-        baseline_rmse_by_start(persistence['rows'])
-        if persistence.get('rows') else {})
-    rolling_summary = summarize_rolling_rows(rows, baseline_by_start)
-    skill = skill_vs_persistence(rows, baseline_by_start)
 
     # ── 诊断信息：一步预测与从初始窗口起的完全递归预测 ──
     protocols = evaluate_prediction_protocols(
@@ -355,17 +171,10 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None,
     one_step = protocols['one_step']
     recursive = protocols['recursive']
 
-    primary = _primary_row(rows, PRIMARY_START) or (rows[0] if rows else None)
-    metrics = _metrics_from_row(primary)
-    metrics['r2'] = one_step['metrics'].get('r2')
-    metrics['pearson'] = one_step['metrics'].get('pearson')
+    # ── 头条指标 = 一步预测（最初样式） ──
+    metrics = dict(one_step['metrics'])
     metrics['re'] = protocols['rul_re']
     metrics['re_status'] = recursive['metrics'].get('re_status')
-
-    forecast = _forecast_for_plot(step_fn, target_frames, window, primary)
-    baseline_metrics = _baseline_one_step_metrics(
-        one_step, target_frames, window, multifeature, rated_capacity,
-        threshold_ratio)
 
     train_data = list(np.asarray(target_frames)[:window, 0]) if multifeature \
         else list(np.asarray(target_frames)[:window])
@@ -377,9 +186,8 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None,
         'model': mode,
         'training_batteries': tuple(train_names),
         'protocol': 'strict_zero_shot',
-        'rul_protocol': 'rolling_origin',
+        'rul_protocol': 'recursive_future',
         'selected_hparams': dict(hp),
-        'inner_cv_rmse': (None if not np.isfinite(cv_score) else float(cv_score)),
         'scaler': scaler.to_dict(),
         'feature_columns': list(columns),
         'feature_scaler': (
@@ -388,24 +196,6 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None,
         'recursive_prediction': recursive['prediction'].tolist(),
         'one_step_metrics': one_step['metrics'],
         'recursive_metrics': recursive['metrics'],
-        'persistence_blend': float(blend),
-        'persistence_blend_rmse': (
-            None if blend_rmse is None or not np.isfinite(blend_rmse)
-            else float(blend_rmse)),
-        'persistence_baseline_metrics': baseline_metrics,
-        'rmse_skill_vs_persistence': skill,
-        'rolling': rolling_summary,
-        'rolling_rows': rows,
-        'baselines': {
-            key: {k: v for k, v in value.items() if k != 'rows'}
-            for key, value in baseline_table.items()
-        },
-        'baseline_rows': {
-            key: value['rows'] for key, value in baseline_table.items()
-        },
-        'primary_start_frac': PRIMARY_START,
-        'forecast_start': (primary['start'] if primary else None),
-        'forecast': forecast,
         'threshold': float(threshold),
     }
     return pred_list, metrics, detail
@@ -418,34 +208,6 @@ def _config_with_seed(config, seed):
         return replace(config, seed=seed)
     except (TypeError, ValueError):
         return config
-
-
-def _primary_row(rows, start_frac):
-    for row in rows:
-        if abs(row['start_frac'] - start_frac) < 1e-9:
-            return row
-    return None
-
-
-def _metrics_from_row(row):
-    """把滚动起点的一行转成指标字典。"""
-    if row is None:
-        return {'rmse': None, 'mae': None, 'r2': None, 'pearson': None,
-                're': None, 're_status': 'unavailable'}
-    return {
-        'rmse': float(row['rmse']),
-        'mae': float(row['mae']),
-        'r2': None,
-        'pearson': None,
-        're': (
-            abs(row['rul_err']) / max(row['true_rul'], 1)
-            if row['status'] == 'ok' and row['true_rul'] else None),
-        're_status': {
-            'ok': 'observed',
-            'true_censored': 'observed_censored',
-            'pred_censored': 'prediction_censored',
-        }.get(row['status'], 'unavailable'),
-    }
 
 
 def _fit_scalers(config, battery_dict, train_names, window, columns,
@@ -510,79 +272,6 @@ def _model_metadata(config, window, rated_capacity, scaler, feature_scaler,
         metadata['hidden_dim'] = int(getattr(config, 'hidden_dim', 64))
         metadata['input_size'] = int(len(columns))
     return metadata
-
-
-def _calibrate_blend(config, battery_dict, train_names, window, fit_fn, hp,
-                     rated_capacity, columns, multifeature, scaler=None,
-                     feature_scaler=None, fold_models=None, stop_flag=None,
-                     log_callback=None, name=''):
-    """A3：用多步滚动误差 + 内层折模型标定持久性混合系数 α。
-
-    ``fold_models`` 由 :func:`core.protocol.select_hparams` 的
-    ``return_folds=True`` 提供（每个折模型没见过对应留出电池），因此 α 不会被
-    「模型见过验证电池」这件事偏向 1。
-    """
-    if fold_models is None:
-        try:
-            fold_models = inner_fold_models(
-                battery_dict, train_names, window, fit_fn, hp, rated_capacity,
-                columns=columns if multifeature else None)
-        except (ValueError, KeyError):
-            fold_models = {}
-
-    if not fold_models:
-        if log_callback:
-            log_callback(f'[{name}] 无法建立内层折模型，α 取 1.0（不做收缩）')
-        return 1.0, None
-
-    if scaler is None:
-        scaler = _fit_scalers(
-            config, battery_dict, train_names, window, columns, multifeature,
-            rated_capacity)[0]
-    device = getattr(config, 'device', 'cpu')
-
-    # 每个验证电池用自己的内层折模型（该模型没见过它）。
-    # 折模型是用「原始量纲 + 内部归一化」训练的，所以 step 必须走同一套
-    # 映射（model_step_for），与 select_hparams 内部保持一致。
-    blend_by_name = {}
-    for val_name, fold_model in fold_models.items():
-        step_raw = model_step_for(
-            fold_model, rated_capacity, device=device,
-            feature_scaler=feature_scaler)
-        alpha, _ = choose_blend_by_rollout(
-            step_raw, battery_dict, [val_name], window,
-            starts=(0.5, 0.6), columns=columns if multifeature else None)
-        blend_by_name[val_name] = alpha
-
-    blend = float(np.mean(list(blend_by_name.values()))) if blend_by_name else 1.0
-    if log_callback:
-        detail = '，'.join(
-            f'{key}={value:.2f}' for key, value in blend_by_name.items())
-        log_callback(
-            f'[{name}] 防过拟合校准系数 α={blend:.3f}'
-            f'（多步滚动标定；{detail}；0=平推，1=原模型）')
-        if blend < 0.05:
-            log_callback(
-                f'[{name}] ⚠ 模型未超越持久性基线（α≈0）：'
-                '递归预测退化为平推，请以滚动起点指标为准。')
-    return blend, None
-
-
-def _forecast_for_plot(step_fn, frames, window, primary):
-    """为图表准备递归预测序列（从主预测起点起，直到观测末端）。"""
-    if primary is None:
-        return []
-    start = primary['start']
-    steps = len(frames) - start
-    if steps <= 0:
-        return []
-    window_values = frames[start - window:start]
-    try:
-        forecast = protocol_module.recursive_forecast(
-            step_fn, window_values, steps)
-    except (ValueError, FloatingPointError):
-        return []
-    return forecast.tolist()
 
 
 def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None,
@@ -712,64 +401,6 @@ def _aggregate_detail(name, mode, battery_dict, ci_info, mean_metrics,
             np.vstack([np.asarray(value, dtype=np.float64)
                        for value in values]), axis=0).tolist()
 
-    def mean_scalar(field):
-        values = [
-            float(item[field]) for item in run_details
-            if item.get(field) is not None
-            and np.isfinite(item[field])
-        ]
-        return float(np.mean(values)) if values else None
-
-    def mean_dict_of_floats(field):
-        collected = {}
-        for item in run_details:
-            for key, value in (item.get(field) or {}).items():
-                if isinstance(value, (int, float)) and np.isfinite(value):
-                    collected.setdefault(key, []).append(float(value))
-        return {key: float(np.mean(values)) for key, values in collected.items()}
-
-    # 滚动起点汇总：把各种子的行按起点取均值
-    rows_by_start = {}
-    for item in run_details:
-        for row in item.get('rolling_rows', []) or []:
-            rows_by_start.setdefault(row['start_frac'], []).append(row)
-
-    aggregated_rows = []
-    for frac, rows in sorted(rows_by_start.items()):
-        merged = {
-            'start_frac': frac,
-            'start': rows[0]['start'],
-            'battery': name,
-            'rmse': float(np.mean([r['rmse'] for r in rows])),
-            'mae': float(np.mean([r['mae'] for r in rows])),
-            'true_rul': rows[0]['true_rul'],
-            'pred_rul': (
-                float(np.mean([r['pred_rul'] for r in rows
-                               if r['pred_rul'] is not None]))
-                if any(r['pred_rul'] is not None for r in rows) else None),
-            'status': rows[0]['status'],
-            'rul_err': (
-                float(np.mean([r['rul_err'] for r in rows
-                               if r['rul_err'] is not None]))
-                if any(r['rul_err'] is not None for r in rows) else None),
-        }
-        aggregated_rows.append(merged)
-
-    baseline_by_start = {}
-    for item in run_details:
-        for key, value in (item.get('baselines') or {}).items():
-            baseline_by_start.setdefault(key, []).append(value.get('rmse'))
-
-    baselines = {}
-    for key, values in baseline_by_start.items():
-        finite = [v for v in values if v is not None and np.isfinite(v)]
-        if finite:
-            baselines[key] = {'rmse': float(np.mean(finite))}
-
-    blends = [
-        float(item['persistence_blend']) for item in run_details
-        if item.get('persistence_blend') is not None
-    ]
     first = run_details[0] if run_details else {}
 
     detail = {
@@ -788,28 +419,15 @@ def _aggregate_detail(name, mode, battery_dict, ci_info, mean_metrics,
         'ci_statistical_object': '同一留一折内的随机种子波动',
         'seed_policy': 'all_seed_mean',
         'protocol': 'strict_zero_shot',
-        'rul_protocol': 'rolling_origin',
+        'rul_protocol': 'recursive_future',
         'one_step_prediction': mean_protocol_prediction('one_step_prediction'),
         'recursive_prediction': mean_protocol_prediction('recursive_prediction'),
         'one_step_metrics': mean_protocol_metrics('one_step_metrics'),
         'recursive_metrics': mean_protocol_metrics('recursive_metrics'),
-        'persistence_blend': float(np.mean(blends)) if blends else 1.0,
-        'rmse_skill_vs_persistence': mean_scalar('rmse_skill_vs_persistence'),
-        'inner_cv_rmse': mean_scalar('inner_cv_rmse'),
         'selected_hparams': first.get('selected_hparams', {}),
         'feature_columns': first.get('feature_columns', ['capacity']),
-        'rolling_rows': aggregated_rows,
-        'rolling': summarize_rolling_rows(aggregated_rows),
-        'baselines': baselines,
-        'primary_start_frac': first.get('primary_start_frac', PRIMARY_START),
-        'forecast_start': first.get('forecast_start'),
-        'forecast': mean_protocol_prediction('forecast'),
         'threshold': first.get('threshold'),
         'training_batteries': first.get('training_batteries', ()),
         'run_details': run_details,
     }
-    # 平推基线的一步指标（供结果表并排展示）
-    baseline_metrics = first.get('persistence_baseline_metrics')
-    if isinstance(baseline_metrics, dict):
-        detail['persistence_baseline_metrics'] = baseline_metrics
     return detail

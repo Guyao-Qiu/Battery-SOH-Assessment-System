@@ -21,6 +21,9 @@ from matplotlib.backends.backend_qtagg import (
 # 组合一起会触发原生访问违例（详见 _apply_ticks）。
 from matplotlib.ticker import FuncFormatter
 
+#: 图例字号相对默认字号的缩放（要求「缩小三分之一」→ 保留 2/3）。
+LEGEND_FONT_SCALE = 2.0 / 3.0
+
 from PyQt6.QtCore import Qt, QSize, QPoint, QTimer, QEvent, QObject
 from PyQt6.QtGui import (
     QIcon, QPixmap, QPainter, QColor, QPen, QBrush, QAction, QFont,
@@ -1806,12 +1809,20 @@ class MplCanvas(FigureCanvas):
                 self.draw_idle()
 
     def _make_legend_interactive(self, ax):
-        """设置图例可拖动、可编辑、无边框"""
+        """设置图例可拖动、可编辑、无边框；字号取默认的 2/3。"""
         legend = ax.legend()
         legend.set_draggable(True)
         legend.set_frame_on(False)
-        for text in legend.get_texts():
+        texts = legend.get_texts()
+        base_size = (texts[0].get_fontsize() if texts
+                     else mpl.rcParams.get('font.size', 10))
+        try:
+            legend_size = float(base_size) * LEGEND_FONT_SCALE
+        except (TypeError, ValueError):
+            legend_size = 10.0 * LEGEND_FONT_SCALE
+        for text in texts:
             text.set_color(self._tokens['text'])
+            text.set_fontsize(legend_size)
             text.set_picker(True)
 
     def _on_legend_pick(self, event):
@@ -1854,7 +1865,10 @@ class MplCanvas(FigureCanvas):
 
     @staticmethod
     def _primary_rolling_row(detail):
-        """主预测起点的滚动行：先对齐 forecast_start，再退回 0.5 起点 / 首个有效行。"""
+        """主预测起点的滚动行：先对齐 forecast_start，再退回 0.5 起点 / 首个有效行。
+
+        最初样式的评估不再产出 ``rolling_rows``，此时返回 None，调用方自行回退。
+        """
         rows = detail.get('rolling_rows') or []
         if not rows:
             return None
@@ -1880,31 +1894,27 @@ class MplCanvas(FigureCanvas):
     def _eol_positions(self, detail, measured, forecast, threshold_val):
         """返回 ``(真实 EOL 下标, 预测 EOL 下标)``；判不出来时该位为 None。
 
-        优先用滚动行的 ``true_rul`` / ``pred_rul``（相对预测起点），缺失时才退回
-        用 :func:`_first_cross` 在实测 / 预测序列上找第一次跌破阈值的位置。
+        先用结果里已算好的失效位置（``measured_failure_position`` /
+        ``predicted_failure_position``），缺失时才退回用 :func:`_first_cross`
+        在实测 / 预测序列上找第一次跌破阈值的位置。
         """
-        row = self._primary_rolling_row(detail)
-        start = detail.get('forecast_start')
-        true_index = pred_index = None
-        if row is not None:
-            base = row.get('start')
-            if base is None:
-                base = start if start is not None else 0
-            base = int(base)
-            true_rul = row.get('true_rul')
-            pred_rul = row.get('pred_rul')
-            if true_rul is not None:
-                true_index = base + int(true_rul)
-            if pred_rul is not None:
-                pred_index = base + int(pred_rul)
+        true_index = detail.get('measured_failure_position')
+        pred_index = detail.get('predicted_failure_position')
         if true_index is None:
             true_index = _first_cross(measured, threshold_val)
-        if pred_index is None and forecast:
-            offset = _first_cross(forecast, threshold_val)
-            if offset is not None:
-                base = start if start is not None else max(
-                    0, len(measured) - len(forecast))
-                pred_index = int(base) + int(offset)
+        if pred_index is None:
+            recursive = _as_float_list(detail.get('recursive_prediction'))
+            if recursive:
+                offset = _first_cross(recursive, threshold_val)
+                if offset is not None:
+                    pred_index = int(offset)
+            elif forecast:
+                offset = _first_cross(forecast, threshold_val)
+                if offset is not None:
+                    start = detail.get('forecast_start')
+                    base = (start if start is not None
+                            else max(0, len(measured) - len(forecast)))
+                    pred_index = int(base) + int(offset)
         if pred_index is None:
             pred_index = true_index
         return true_index, pred_index
@@ -2129,27 +2139,29 @@ class MplCanvas(FigureCanvas):
                         fontsize=8.5, color=tokens['chart_forecast'],
                         ha='left', va='top', annotation_clip=False)
             else:
-                # 没有 forecast 时退回老行为：递归预测序列 → 一步预测序列。
-                recursive = _as_float_list(detail.get('recursive_prediction'))
-                if recursive:
-                    base = max(0, len(measured) - len(recursive))
-                    recursive_x = [self._index_to_cycle(cycles, base + i)
-                                   for i in range(len(recursive))]
-                    ax.plot(recursive_x, recursive,
-                            color=tokens['chart_forecast'], linewidth=2.0,
-                            linestyle='--', label='预测值（递归）', zorder=4)
+                # 没有 forecast 时退回老行为：一步预测序列 → 递归预测序列。
+                series = _as_float_list(
+                    prediction_by_battery.get(battery_name))
+                if series and len(measured):
+                    if len(series) < len(measured):
+                        series = series + [np.nan] * (
+                            len(measured) - len(series))
+                    elif len(series) > len(measured):
+                        series = series[:len(measured)]
+                    ax.plot(cycles, series, color=tokens['chart_forecast'],
+                            linewidth=2.0, linestyle='--',
+                            label='预测值', zorder=4)
                 else:
-                    series = _as_float_list(
-                        prediction_by_battery.get(battery_name))
-                    if series and len(measured):
-                        if len(series) < len(measured):
-                            series = series + [np.nan] * (
-                                len(measured) - len(series))
-                        elif len(series) > len(measured):
-                            series = series[:len(measured)]
-                        ax.plot(cycles, series, color=tokens['chart_forecast'],
-                                linewidth=2.0, linestyle='--',
-                                label='预测值', zorder=4)
+                    recursive = _as_float_list(
+                        detail.get('recursive_prediction'))
+                    if recursive:
+                        base = max(0, len(measured) - len(recursive))
+                        recursive_x = [
+                            self._index_to_cycle(cycles, base + i)
+                            for i in range(len(recursive))]
+                        ax.plot(recursive_x, recursive,
+                                color=tokens['chart_forecast'], linewidth=2.0,
+                                linestyle='--', label='预测值（递归）', zorder=4)
 
             # ── 失效：朱砂虚线 ──
             ax.axhline(y=threshold_val, color=tokens['chart_threshold'],
