@@ -2172,6 +2172,30 @@ class MplCanvas(FigureCanvas):
                                 linewidth=FORECAST_LINE_WIDTH,
                                 linestyle='--', label='预测值（递归）', zorder=4)
 
+            # ── 递归外推曲线：预测 EOL 三角就落在它上面 ──
+            # 一步预测贴着真实值走（短期拟合），递归外推从初始窗口一路
+            # 自回归（长期部署场景）。两条线一起画，EOL 三角才有处可依。
+            # 递归序列外推久了会掉到负容量（物理上不可能），只画到首次跌破
+            # 阈值之后一小段，既说明问题又不把纵轴拉爆。
+            if forecast:
+                recursive_series = []
+            else:
+                recursive_series = _as_float_list(
+                    detail.get('recursive_prediction'))
+            recursive_draw = []
+            if recursive_series:
+                crossing = _first_cross(recursive_series, threshold_val)
+                stop = (len(recursive_series) if crossing is None
+                        else min(len(recursive_series), crossing + 40))
+                recursive_draw = recursive_series[:stop]
+                rec_base = max(0, len(measured) - len(recursive_series))
+                rec_x = [self._index_to_cycle(cycles, rec_base + i)
+                         for i in range(len(recursive_draw))]
+                ax.plot(rec_x, recursive_draw,
+                        color=tokens['chart_forecast'],
+                        linewidth=FORECAST_LINE_WIDTH, linestyle=':',
+                        alpha=0.9, label='递归外推', zorder=4)
+
             # ── 失效：朱砂虚线 ──
             ax.axhline(y=threshold_val, color=tokens['chart_threshold'],
                        linestyle='--', linewidth=THRESHOLD_LINE_WIDTH,
@@ -2192,7 +2216,8 @@ class MplCanvas(FigureCanvas):
                         label=label)
 
             self._style_axis(ax, tokens)
-            self._focus_y(ax, [measured, forecast], rated_capacity, threshold_val)
+            self._focus_y(ax, [measured, forecast, recursive_draw],
+                          rated_capacity, threshold_val)
             self._attach_soh_axis(ax, rated_capacity, tokens)
 
             self._make_legend_interactive(ax)

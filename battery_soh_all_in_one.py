@@ -3,7 +3,7 @@
 #  Battery SOH Assessment System —— 单文件整合版 (All-in-One)
 # ===========================================================================
 #  本文件由 scripts/build_all_in_one.py 自动生成，请勿手工编辑。
-#  生成时间: 2026-10-19 15:34:54
+#  生成时间: 2026-10-19 18:03:55
 #  内嵌模块: 41 个（原 core/ models/ ui/ utils/ 全部源码）
 #
 #  运行方式:
@@ -11464,6 +11464,30 @@ _MODULE_SOURCES['ui.chart_show'] = (
     '                                linewidth=FORECAST_LINE_WIDTH,\n'
     "                                linestyle='--', label='预测值（递归）', zorder=4)\n"
     '\n'
+    '            # ── 递归外推曲线：预测 EOL 三角就落在它上面 ──\n'
+    '            # 一步预测贴着真实值走（短期拟合），递归外推从初始窗口一路\n'
+    '            # 自回归（长期部署场景）。两条线一起画，EOL 三角才有处可依。\n'
+    '            # 递归序列外推久了会掉到负容量（物理上不可能），只画到首次跌破\n'
+    '            # 阈值之后一小段，既说明问题又不把纵轴拉爆。\n'
+    '            if forecast:\n'
+    '                recursive_series = []\n'
+    '            else:\n'
+    '                recursive_series = _as_float_list(\n'
+    "                    detail.get('recursive_prediction'))\n"
+    '            recursive_draw = []\n'
+    '            if recursive_series:\n'
+    '                crossing = _first_cross(recursive_series, threshold_val)\n'
+    '                stop = (len(recursive_series) if crossing is None\n'
+    '                        else min(len(recursive_series), crossing + 40))\n'
+    '                recursive_draw = recursive_series[:stop]\n'
+    '                rec_base = max(0, len(measured) - len(recursive_series))\n'
+    '                rec_x = [self._index_to_cycle(cycles, rec_base + i)\n'
+    '                         for i in range(len(recursive_draw))]\n'
+    '                ax.plot(rec_x, recursive_draw,\n'
+    "                        color=tokens['chart_forecast'],\n"
+    "                        linewidth=FORECAST_LINE_WIDTH, linestyle=':',\n"
+    "                        alpha=0.9, label='递归外推', zorder=4)\n"
+    '\n'
     '            # ── 失效：朱砂虚线 ──\n'
     "            ax.axhline(y=threshold_val, color=tokens['chart_threshold'],\n"
     "                       linestyle='--', linewidth=THRESHOLD_LINE_WIDTH,\n"
@@ -11484,7 +11508,8 @@ _MODULE_SOURCES['ui.chart_show'] = (
     '                        label=label)\n'
     '\n'
     '            self._style_axis(ax, tokens)\n'
-    '            self._focus_y(ax, [measured, forecast], rated_capacity, threshold_val)\n'
+    '            self._focus_y(ax, [measured, forecast, recursive_draw],\n'
+    '                          rated_capacity, threshold_val)\n'
     '            self._attach_soh_axis(ax, rated_capacity, tokens)\n'
     '\n'
     '            self._make_legend_interactive(ax)\n'
