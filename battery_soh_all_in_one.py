@@ -3,7 +3,7 @@
 #  Battery SOH Assessment System —— 单文件整合版 (All-in-One)
 # ===========================================================================
 #  本文件由 scripts/build_all_in_one.py 自动生成，请勿手工编辑。
-#  生成时间: 2026-10-18 17:40:57
+#  生成时间: 2026-10-19 10:41:50
 #  内嵌模块: 41 个（原 core/ models/ ui/ utils/ 全部源码）
 #
 #  运行方式:
@@ -723,15 +723,15 @@ _EMBEDDED_STATIC = {
 _EMBEDDED_CONFIG = (
         'ew0KICAicmF0ZWRfY2FwYWNpdHkiOiAxLjEsDQogICJ0aHJlc2hvbGRfcmF0aW8iOiAwLjgsDQog'
         'ICJ2b2x0YWdlX3VwcGVyIjogMy44LA0KICAidm9sdGFnZV9sb3dlciI6IDMuNCwNCiAgIndpbmRv'
-        'd19zaXplIjogMTYsDQogICJlcG9jaHMiOiAxMDAsDQogICJoaWRkZW5fZGltIjogNjQsDQogICJz'
-        'ZWVkIjogMiwNCiAgIm5fc2VlZHMiOiAzLA0KICAibW9kZSI6ICJSTk4iLA0KICAibWV0cmljIjog'
-        'InJtc2UiLA0KICAiZGV2aWNlIjogImN1ZGEiLA0KICAibm9ybV9tZXRob2QiOiAicmF0ZWQiLA0K'
-        'ICAiZmVhdHVyZV9jb2x1bW5zIjogWw0KICAgICJjYXBhY2l0eSINCiAgXSwNCiAgIm5fZXN0aW1h'
-        'dG9ycyI6IDEwMCwNCiAgImxlYXJuaW5nX3JhdGUiOiAwLjA1LA0KICAibWF4X2RlcHRoIjogNiwN'
-        'CiAgInN1YnNhbXBsZSI6IDEuMCwNCiAgImNvbHNhbXBsZV9ieXRyZWUiOiAxLjAsDQogICJtaW5f'
-        'c2FtcGxlc19sZWFmIjogMSwNCiAgIm1heF9mZWF0dXJlcyI6IDEuMCwNCiAgInBhdGllbmNlIjog'
-        'MjAsDQogICJhZGFwdGVyX3R5cGUiOiAiQ0FMQ0UiLA0KICAiY2Nfc3RlcCI6IDIsDQogICJjdl9z'
-        'dGVwIjogNCwNCiAgImRpc2NoYXJnZV9zdGVwIjogNw0KfQ=='
+        'd19zaXplIjogNjQsDQogICJlcG9jaHMiOiAxMDAsDQogICJoaWRkZW5fZGltIjogNjQsDQogICJz'
+        'ZWVkIjogMywNCiAgIm5fc2VlZHMiOiAyLA0KICAibW9kZSI6ICJSTk4iLA0KICAibWV0cmljIjog'
+        'ImFsbCIsDQogICJkZXZpY2UiOiAiY3VkYSIsDQogICJub3JtX21ldGhvZCI6ICJyYXRlZCIsDQog'
+        'ICJmZWF0dXJlX2NvbHVtbnMiOiBbDQogICAgImNhcGFjaXR5Ig0KICBdLA0KICAibl9lc3RpbWF0'
+        'b3JzIjogMTAwLA0KICAibGVhcm5pbmdfcmF0ZSI6IDAuMSwNCiAgIm1heF9kZXB0aCI6IDYsDQog'
+        'ICJzdWJzYW1wbGUiOiAxLjAsDQogICJjb2xzYW1wbGVfYnl0cmVlIjogMS4wLA0KICAibWluX3Nh'
+        'bXBsZXNfbGVhZiI6IDEsDQogICJtYXhfZmVhdHVyZXMiOiAxLjAsDQogICJwYXRpZW5jZSI6IDIw'
+        'LA0KICAiYWRhcHRlcl90eXBlIjogIkNBTENFIiwNCiAgImNjX3N0ZXAiOiAyLA0KICAiY3Zfc3Rl'
+        'cCI6IDQsDQogICJkaXNjaGFyZ2Vfc3RlcCI6IDcNCn0='
 )
 
 # ---------------------------------------------------------------------------
@@ -8727,13 +8727,12 @@ _MODULE_SOURCES['ui.result_model'] = (
     '\n'
     '\n'
     'def _first_cross(values, threshold):\n'
-    '    """``values`` 中第一个低于 ``threshold`` 的下标；从未低于则返回 None。"""\n'
-    '    if threshold is None:\n'
+    '    """首次跌破阈值的下标；从未跌破则返回 None（委托统一实现）。"""\n'
+    '    if threshold is None or not values:\n'
     '        return None\n'
-    '    for index, value in enumerate(values):\n'
-    '        if value is not None and value < threshold:\n'
-    '            return index\n'
-    '    return None\n'
+    '    from core.result_semantics import first_failure_index\n'
+    '\n'
+    '    return first_failure_index(values, threshold)\n'
     '\n'
     '\n'
     'def _row_from_detail(detail, start_frac=None):\n'
@@ -9085,6 +9084,11 @@ _MODULE_SOURCES['ui.chart_show'] = (
     '\n'
     '#: 图例字号相对默认字号的缩放（要求「缩小三分之一」→ 保留 2/3）。\n'
     'LEGEND_FONT_SCALE = 2.0 / 3.0\n'
+    '\n'
+    '#: 数据线默认宽度（与参考图表的细线风格一致）：实测线、预测线、阈值线。\n'
+    'MEASURED_LINE_WIDTH = 1.0\n'
+    'FORECAST_LINE_WIDTH = 1.5\n'
+    'THRESHOLD_LINE_WIDTH = 1.2\n'
     '\n'
     'from PyQt6.QtCore import Qt, QSize, QPoint, QTimer, QEvent, QObject\n'
     'from PyQt6.QtGui import (\n'
@@ -10525,16 +10529,17 @@ _MODULE_SOURCES['ui.chart_show'] = (
     '        self._rated_capacity = None\n'
     '        self._threshold_ratio = None\n'
     '        self._soh_axis = None\n'
-    '        # 事实 = 中性墨色实线 + 小圆点；模型输出 = 强调色加粗虚线。\n'
+    '        # 事实 = 中性墨色实线 + 小圆点；模型输出 = 强调色虚线。\n'
     '        self.observed_line, = ax.plot(\n'
     "            [], [], color=tokens['chart_measured'], marker='o', markersize=3,\n"
-    "            linewidth=1.2, label='实测容量', zorder=3)\n"
+    "            linewidth=MEASURED_LINE_WIDTH, label='实测容量', zorder=3)\n"
     '        self.forecast_line, = ax.plot(\n'
-    "            [], [], color=tokens['chart_forecast'], linewidth=2.0,\n"
+    "            [], [], color=tokens['chart_forecast'],\n"
+    '            linewidth=FORECAST_LINE_WIDTH,\n'
     "            linestyle='--', label='预测容量', zorder=4)\n"
     '        self.threshold_line = ax.axhline(\n'
     "            y=0.0, color=tokens['chart_threshold'], linestyle='--',\n"
-    "            linewidth=1.3, label='失效阈值线', zorder=5)\n"
+    "            linewidth=THRESHOLD_LINE_WIDTH, label='失效阈值线', zorder=5)\n"
     '\n'
     '    def set_threshold(self, threshold, rated_capacity=None, threshold_ratio=None):\n'
     '        """更新失效阈值线（额定容量 / 比例变了也不重建坐标轴）。"""\n'
@@ -11163,11 +11168,12 @@ _MODULE_SOURCES['ui.chart_show'] = (
     "                measured_color = tokens['chart_measured']\n"
     '            if len(measured):\n'
     '                marker_step = max(1, len(cycles) // 24)\n'
-    '                ax.plot(cycles, measured, color=measured_color, linewidth=1.2,\n'
+    '                ax.plot(cycles, measured, color=measured_color,\n'
+    '                        linewidth=MEASURED_LINE_WIDTH,\n'
     "                        marker='o', markersize=3, markevery=marker_step,\n"
     "                        label='真实值', zorder=3)\n"
     '\n'
-    '            # ── 模型输出：递归预测（强调色、加粗虚线） ──\n'
+    '            # ── 模型输出：递归预测（强调色虚线） ──\n'
     '            if forecast:\n'
     "                start = detail.get('forecast_start')\n"
     '                base = (int(start) if start is not None\n'
@@ -11175,7 +11181,8 @@ _MODULE_SOURCES['ui.chart_show'] = (
     '                forecast_x = [self._index_to_cycle(cycles, base + i)\n'
     '                              for i in range(len(forecast))]\n'
     "                ax.plot(forecast_x, forecast, color=tokens['chart_forecast'],\n"
-    "                        linewidth=2.0, linestyle='--', label='预测值', zorder=4)\n"
+    "                        linewidth=FORECAST_LINE_WIDTH, linestyle='--',\n"
+    "                        label='预测值', zorder=4)\n"
     '                if band:\n'
     '                    try:\n'
     '                        band_lo, band_hi = band\n'
@@ -11211,7 +11218,7 @@ _MODULE_SOURCES['ui.chart_show'] = (
     '                    elif len(series) > len(measured):\n'
     '                        series = series[:len(measured)]\n'
     "                    ax.plot(cycles, series, color=tokens['chart_forecast'],\n"
-    "                            linewidth=2.0, linestyle='--',\n"
+    "                            linewidth=FORECAST_LINE_WIDTH, linestyle='--',\n"
     "                            label='预测值', zorder=4)\n"
     '                else:\n'
     '                    recursive = _as_float_list(\n'
@@ -11222,12 +11229,13 @@ _MODULE_SOURCES['ui.chart_show'] = (
     '                            self._index_to_cycle(cycles, base + i)\n'
     '                            for i in range(len(recursive))]\n'
     '                        ax.plot(recursive_x, recursive,\n'
-    "                                color=tokens['chart_forecast'], linewidth=2.0,\n"
+    "                                color=tokens['chart_forecast'],\n"
+    '                                linewidth=FORECAST_LINE_WIDTH,\n'
     "                                linestyle='--', label='预测值（递归）', zorder=4)\n"
     '\n'
     '            # ── 失效：朱砂虚线 ──\n'
     "            ax.axhline(y=threshold_val, color=tokens['chart_threshold'],\n"
-    "                       linestyle='--', linewidth=1.3,\n"
+    "                       linestyle='--', linewidth=THRESHOLD_LINE_WIDTH,\n"
     '                       label=threshold_label, zorder=5)\n'
     '\n'
     '            # ── EOL 标记：菱形=真实，三角形=预测（形状冗余，不靠颜色） ──\n'

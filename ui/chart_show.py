@@ -24,6 +24,11 @@ from matplotlib.ticker import FuncFormatter
 #: 图例字号相对默认字号的缩放（要求「缩小三分之一」→ 保留 2/3）。
 LEGEND_FONT_SCALE = 2.0 / 3.0
 
+#: 数据线默认宽度（与参考图表的细线风格一致）：实测线、预测线、阈值线。
+MEASURED_LINE_WIDTH = 1.0
+FORECAST_LINE_WIDTH = 1.5
+THRESHOLD_LINE_WIDTH = 1.2
+
 from PyQt6.QtCore import Qt, QSize, QPoint, QTimer, QEvent, QObject
 from PyQt6.QtGui import (
     QIcon, QPixmap, QPainter, QColor, QPen, QBrush, QAction, QFont,
@@ -1463,16 +1468,17 @@ class LivePlot:
         self._rated_capacity = None
         self._threshold_ratio = None
         self._soh_axis = None
-        # 事实 = 中性墨色实线 + 小圆点；模型输出 = 强调色加粗虚线。
+        # 事实 = 中性墨色实线 + 小圆点；模型输出 = 强调色虚线。
         self.observed_line, = ax.plot(
             [], [], color=tokens['chart_measured'], marker='o', markersize=3,
-            linewidth=1.2, label='实测容量', zorder=3)
+            linewidth=MEASURED_LINE_WIDTH, label='实测容量', zorder=3)
         self.forecast_line, = ax.plot(
-            [], [], color=tokens['chart_forecast'], linewidth=2.0,
+            [], [], color=tokens['chart_forecast'],
+            linewidth=FORECAST_LINE_WIDTH,
             linestyle='--', label='预测容量', zorder=4)
         self.threshold_line = ax.axhline(
             y=0.0, color=tokens['chart_threshold'], linestyle='--',
-            linewidth=1.3, label='失效阈值线', zorder=5)
+            linewidth=THRESHOLD_LINE_WIDTH, label='失效阈值线', zorder=5)
 
     def set_threshold(self, threshold, rated_capacity=None, threshold_ratio=None):
         """更新失效阈值线（额定容量 / 比例变了也不重建坐标轴）。"""
@@ -2101,11 +2107,12 @@ class MplCanvas(FigureCanvas):
                 measured_color = tokens['chart_measured']
             if len(measured):
                 marker_step = max(1, len(cycles) // 24)
-                ax.plot(cycles, measured, color=measured_color, linewidth=1.2,
+                ax.plot(cycles, measured, color=measured_color,
+                        linewidth=MEASURED_LINE_WIDTH,
                         marker='o', markersize=3, markevery=marker_step,
                         label='真实值', zorder=3)
 
-            # ── 模型输出：递归预测（强调色、加粗虚线） ──
+            # ── 模型输出：递归预测（强调色虚线） ──
             if forecast:
                 start = detail.get('forecast_start')
                 base = (int(start) if start is not None
@@ -2113,7 +2120,8 @@ class MplCanvas(FigureCanvas):
                 forecast_x = [self._index_to_cycle(cycles, base + i)
                               for i in range(len(forecast))]
                 ax.plot(forecast_x, forecast, color=tokens['chart_forecast'],
-                        linewidth=2.0, linestyle='--', label='预测值', zorder=4)
+                        linewidth=FORECAST_LINE_WIDTH, linestyle='--',
+                        label='预测值', zorder=4)
                 if band:
                     try:
                         band_lo, band_hi = band
@@ -2149,7 +2157,7 @@ class MplCanvas(FigureCanvas):
                     elif len(series) > len(measured):
                         series = series[:len(measured)]
                     ax.plot(cycles, series, color=tokens['chart_forecast'],
-                            linewidth=2.0, linestyle='--',
+                            linewidth=FORECAST_LINE_WIDTH, linestyle='--',
                             label='预测值', zorder=4)
                 else:
                     recursive = _as_float_list(
@@ -2160,12 +2168,13 @@ class MplCanvas(FigureCanvas):
                             self._index_to_cycle(cycles, base + i)
                             for i in range(len(recursive))]
                         ax.plot(recursive_x, recursive,
-                                color=tokens['chart_forecast'], linewidth=2.0,
+                                color=tokens['chart_forecast'],
+                                linewidth=FORECAST_LINE_WIDTH,
                                 linestyle='--', label='预测值（递归）', zorder=4)
 
             # ── 失效：朱砂虚线 ──
             ax.axhline(y=threshold_val, color=tokens['chart_threshold'],
-                       linestyle='--', linewidth=1.3,
+                       linestyle='--', linewidth=THRESHOLD_LINE_WIDTH,
                        label=threshold_label, zorder=5)
 
             # ── EOL 标记：菱形=真实，三角形=预测（形状冗余，不靠颜色） ──
