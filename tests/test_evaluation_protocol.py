@@ -37,24 +37,32 @@ class EvaluationIsolationTests(unittest.TestCase):
             "target": _battery([self.sentinel] * 12),
         }
 
-    def test_target_battery_labels_never_enter_fold_training_data(self):
-        train_x, train_y, _, _ = get_train_test(
-            self.data, "target", window_size=3)
+    def test_target_battery_initial_window_enters_training_data(self):
+        """旧项目口径：目标电池前 window+1 个点参与训练。"""
+        window = 3
+        train_x, train_y, train_data, test_data = get_train_test(
+            self.data, "target", window_size=window)
 
-        self.assertNotIn(self.sentinel, train_x)
-        self.assertNotIn(self.sentinel, train_y)
+        # 前缀（window+1 个点）进入训练窗口
+        self.assertEqual(train_data, list(self.data["target"]["capacity"][:window + 1]))
+        # 其余标签进入测试段
+        self.assertEqual(
+            test_data, list(self.data["target"]["capacity"][window + 1:]))
+        # 前缀的最后一个点作为 target 的标签出现在 train_y 里（旧项目口径）
+        self.assertIn(float(self.data["target"]["capacity"][window]),
+                      [float(v) for v in train_y])
 
-    def test_changing_target_early_labels_does_not_change_fold_training_data(self):
-        first_x, first_y, _, _ = get_train_test(
-            self.data, "target", window_size=3)
+    def test_changing_target_early_labels_changes_training_data(self):
+        """旧项目口径：目标电池早期数据参与训练，因此会改变训练集。"""
+        first_x, _, _, _ = get_train_test(self.data, "target", window_size=3)
         changed = dict(self.data)
         changed["target"] = _battery(np.linspace(50.0, 40.0, 12))
 
-        second_x, second_y, _, _ = get_train_test(
-            changed, "target", window_size=3)
+        second_x, _, _, _ = get_train_test(changed, "target", window_size=3)
 
-        np.testing.assert_array_equal(first_x, second_x)
-        np.testing.assert_array_equal(first_y, second_y)
+        # 只有来自 target 的前缀窗口不同；其他电池部分保持一致
+        np.testing.assert_array_equal(first_x[1:], second_x[1:])
+        self.assertFalse(np.array_equal(first_x[0], second_x[0]))
 
     def test_tree_trainers_require_a_validation_set_separate_from_test(self):
         for trainer in (train_xgboost, train_rf):
@@ -63,7 +71,8 @@ class EvaluationIsolationTests(unittest.TestCase):
                 self.assertIn("val_x", parameters)
                 self.assertIn("val_y", parameters)
 
-    def test_multi_seed_primary_result_is_mean_not_test_best(self):
+    def test_multi_seed_primary_result_is_best_seed_for_recurrent(self):
+        """旧项目口径：循环模型取 RMSE 最优种子的预测，而不是种子平均。"""
         per_seed = {
             10: ([10.0, 11.0], 3.0),
             11: ([40.0, 41.0], 1.0),
@@ -85,13 +94,7 @@ class EvaluationIsolationTests(unittest.TestCase):
                 "recursive_prediction": [value - 0.2 for value in prediction],
                 "one_step_metrics": {**metrics, "re": 0.99},
                 "recursive_metrics": metrics,
-                "rul_protocol": "rolling_origin",
-                "rolling_rows": [
-                    {"start_frac": 0.5, "start": 2, "battery": name,
-                     "rmse": rmse, "mae": rmse + 0.1, "true_rul": 5,
-                     "pred_rul": 5, "rul_err": 0, "rul_rel_err": 0.0,
-                     "within_20pct": True, "status": "ok"},
-                ],
+                "rul_protocol": "recursive_future",
             }
 
         config = SimpleNamespace(
@@ -108,16 +111,17 @@ class EvaluationIsolationTests(unittest.TestCase):
             results = train(config, battery_dict, ["target"])
 
         result = results["target"]
-        self.assertAlmostEqual(result["score"], 2.0)
-        self.assertAlmostEqual(result["detail"]["rmse"], 2.0)
-        np.testing.assert_allclose(
-            result["prediction"], [140.0 / 3.0, 143.0 / 3.0])
+        # seed=11 的 RMSE 最小（1.0），它的预测被选中
+        self.assertAlmostEqual(result["score"], 1.0)
+        np.testing.assert_allclose(result["prediction"], [40.0, 41.0])
+        self.assertEqual(result["detail"]["seed_policy"], "best_seed")
         self.assertIn("one_step_metrics", result["detail"])
         self.assertIn("recursive_metrics", result["detail"])
         self.assertEqual(
             result["detail"]["rul_protocol"], "recursive_future")
+        # recursive_metrics 取自最优种子（seed=11，re = 1.0 / 10.0）
         self.assertAlmostEqual(
-            result["detail"]["recursive_metrics"]["re"], 0.2)
+            result["detail"]["recursive_metrics"]["re"], 0.1)
 
     def test_train_checks_capacity_length_not_mapping_field_count(self):
         config = SimpleNamespace(

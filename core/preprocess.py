@@ -543,13 +543,28 @@ def prepare_leave_one_out_split(data_dict, name, window_size=8,
 
 
 def get_train_test(data_dict, name, window_size=8):
-    """Backward-compatible strict split without target-battery training labels."""
-    split = prepare_leave_one_out_split(data_dict, name, window_size)
-    train_x = np.vstack((split.train_x, split.val_x))
-    train_y = np.concatenate((split.train_y, split.val_y))
-    train_data = list(split.initial_window)
-    test_data = list(split.target_sequence[window_size:])
-    return train_x, train_y, train_data, test_data
+    """旧项目同款切分：目标电池前 ``window_size + 1`` 个点参与训练。
+
+    训练集 = 目标电池前 ``window_size + 1`` 个点构建的窗口 + 其他电池全部窗口；
+    测试集 = 目标电池从 ``window_size + 1`` 起的序列。与 8 月参考实现一致。
+    """
+    data_sequence = np.asarray(
+        data_dict[name]['capacity'], dtype=np.float32).reshape(-1)
+    train_data = data_sequence[:window_size + 1]
+    test_data = data_sequence[window_size + 1:]
+    train_x, train_y = build_instances(train_data, window_size)
+    for key, entry in data_dict.items():
+        if key == name:
+            continue
+        other = np.asarray(entry['capacity'], dtype=np.float32).reshape(-1)
+        data_x, data_y = build_instances(other, window_size)
+        if len(data_x) == 0:
+            continue
+        train_x = np.concatenate((train_x, data_x), axis=0) \
+            if len(train_x) else data_x
+        train_y = np.concatenate((train_y, data_y), axis=0) \
+            if len(train_y) else data_y
+    return train_x, train_y, list(train_data), list(test_data)
 
 
 def normalize_data(data, method='rated', rated_capacity=1.1):

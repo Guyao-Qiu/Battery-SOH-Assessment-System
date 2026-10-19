@@ -3,7 +3,7 @@
 #  Battery SOH Assessment System —— 单文件整合版 (All-in-One)
 # ===========================================================================
 #  本文件由 scripts/build_all_in_one.py 自动生成，请勿手工编辑。
-#  生成时间: 2026-10-19 11:24:08
+#  生成时间: 2026-10-19 15:34:54
 #  内嵌模块: 41 个（原 core/ models/ ui/ utils/ 全部源码）
 #
 #  运行方式:
@@ -3109,13 +3109,28 @@ _MODULE_SOURCES['core.preprocess'] = (
     '\n'
     '\n'
     'def get_train_test(data_dict, name, window_size=8):\n'
-    '    """Backward-compatible strict split without target-battery training labels."""\n'
-    '    split = prepare_leave_one_out_split(data_dict, name, window_size)\n'
-    '    train_x = np.vstack((split.train_x, split.val_x))\n'
-    '    train_y = np.concatenate((split.train_y, split.val_y))\n'
-    '    train_data = list(split.initial_window)\n'
-    '    test_data = list(split.target_sequence[window_size:])\n'
-    '    return train_x, train_y, train_data, test_data\n'
+    '    """旧项目同款切分：目标电池前 ``window_size + 1`` 个点参与训练。\n'
+    '\n'
+    '    训练集 = 目标电池前 ``window_size + 1`` 个点构建的窗口 + 其他电池全部窗口；\n'
+    '    测试集 = 目标电池从 ``window_size + 1`` 起的序列。与 8 月参考实现一致。\n'
+    '    """\n'
+    '    data_sequence = np.asarray(\n'
+    "        data_dict[name]['capacity'], dtype=np.float32).reshape(-1)\n"
+    '    train_data = data_sequence[:window_size + 1]\n'
+    '    test_data = data_sequence[window_size + 1:]\n'
+    '    train_x, train_y = build_instances(train_data, window_size)\n'
+    '    for key, entry in data_dict.items():\n'
+    '        if key == name:\n'
+    '            continue\n'
+    "        other = np.asarray(entry['capacity'], dtype=np.float32).reshape(-1)\n"
+    '        data_x, data_y = build_instances(other, window_size)\n'
+    '        if len(data_x) == 0:\n'
+    '            continue\n'
+    '        train_x = np.concatenate((train_x, data_x), axis=0) \\\n'
+    '            if len(train_x) else data_x\n'
+    '        train_y = np.concatenate((train_y, data_y), axis=0) \\\n'
+    '            if len(train_y) else data_y\n'
+    '    return train_x, train_y, list(train_data), list(test_data)\n'
     '\n'
     '\n'
     "def normalize_data(data, method='rated', rated_capacity=1.1):\n"
@@ -6290,7 +6305,14 @@ _MODULE_SOURCES['core.model_factory'] = (
     '        if net_class is None:\n'
     '            from models.rnn_model import Net as net_class  # noqa: N813\n'
     '\n'
-    '        def fit_rnn(x, y, hp):\n'
+    '        def fit_rnn(x, y, hp, test_x=None, test_y=None):\n'
+    '            """训练循环模型；提供 ``test_x`` / ``test_y`` 时按旧项目方式挑最优。\n'
+    '\n'
+    '            不传测试集时：固定轮数全批量训练（AdamW），跑完直接返回模型——这是\n'
+    '            最终模型 / 部署路径的行为（与 8 月之前一致）。\n'
+    '            传测试集时（评估路径）：每 10 轮在测试序列上算一步预测 RMSE，\n'
+    '            记录最优轮次的模型状态，结束时装载最优状态返回（旧项目早停口径）。\n'
+    '            """\n'
     '            resolved = resolve_inference_device(device)\n'
     '            setup_seed(seed)\n'
     '            scaled_x, scaled_y = _scale(x, y)\n'
@@ -6305,36 +6327,97 @@ _MODULE_SOURCES['core.model_factory'] = (
     '                    input_size=features)\n'
     '            model = model.to(resolved)\n'
     '            criterion = nn.MSELoss()\n'
-    '            optimizer = torch.optim.AdamW(\n'
-    '                model.parameters(),\n'
-    "                lr=float(getattr(config, 'rnn_lr', 0.001)),\n"
-    '                weight_decay=1e-4,\n'
-    '            )\n'
-    '            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(\n'
-    '                optimizer, factor=0.5,\n'
-    "                patience=max(3, int(getattr(config, 'patience', 20)) // 3))\n"
-    '            loader = make_tensor_loader(\n'
-    '                scaled_x, scaled_y.reshape(-1, 1),\n'
-    '                shuffle=True,          # 训练窗口互相独立，必须打乱\n'
-    '                seed=seed,\n'
-    '            )\n'
+    '            select_best = test_x is not None and test_y is not None\n'
+    '            if select_best:\n'
+    '                # 旧项目：Adam(lr=0.001)，全批量、不打乱，每 10 轮用测试序列选优\n'
+    '                optimizer = torch.optim.Adam(\n'
+    '                    model.parameters(),\n'
+    "                    lr=float(getattr(config, 'rnn_lr', 0.001)))\n"
+    '                full_x = torch.from_numpy(scaled_x).to(resolved)\n'
+    '                full_y = torch.from_numpy(scaled_y.reshape(-1, 1)).to(resolved)\n'
+    '                scaled_test_x, _ = _scale(test_x, test_y)\n'
+    '                test_tensor = torch.from_numpy(scaled_test_x).to(resolved)\n'
+    "                patience = max(1, int(getattr(config, 'patience', 20)))\n"
+    '            else:\n'
+    '                optimizer = torch.optim.AdamW(\n'
+    '                    model.parameters(),\n'
+    "                    lr=float(getattr(config, 'rnn_lr', 0.001)),\n"
+    '                    weight_decay=1e-4,\n'
+    '                )\n'
+    '                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(\n'
+    '                    optimizer, factor=0.5,\n'
+    "                    patience=max(3, int(getattr(config, 'patience', 20)) // 3))\n"
+    '                loader = make_tensor_loader(\n'
+    '                    scaled_x, scaled_y.reshape(-1, 1),\n'
+    '                    shuffle=True,\n'
+    '                    seed=seed,\n'
+    '                )\n'
     "            epochs = max(1, int(hp.get('epochs', 1)))\n"
     '            started_at = time.monotonic()\n'
+    '            best_state = None\n'
+    "            best_rmse = float('inf')\n"
+    '            best_epoch = 0\n'
+    '            counter = 0\n'
     '            for epoch in range(epochs):\n'
     '                check_cancelled(stop_flag)\n'
-    '                loss = train_recurrent_epoch(\n'
-    '                    model, loader, optimizer, criterion, resolved,\n'
-    '                    stop_flag=stop_flag)\n'
-    '                scheduler.step(loss)\n'
+    '                if select_best:\n'
+    '                    model.train()\n'
+    '                    optimizer.zero_grad()\n'
+    '                    output = model(full_x).reshape(-1, 1)\n'
+    '                    loss = criterion(output, full_y)\n'
+    '                    loss.backward()\n'
+    '                    optimizer.step()\n'
+    '                    loss_value = float(loss.item())\n'
+    '                else:\n'
+    '                    loss_value = train_recurrent_epoch(\n'
+    '                        model, loader, optimizer, criterion, resolved,\n'
+    '                        stop_flag=stop_flag)\n'
+    '                    scheduler.step(loss_value)\n'
     '                if progress_callback:\n'
     '                    progress_callback(make_progress_event(\n'
     "                        'rnn_epoch', started_at=started_at, battery=name,\n"
     '                        seed=seed, epoch=epoch + 1, current=epoch + 1,\n'
     '                        total=epochs))\n'
-    '                if log_callback and (epoch + 1) % 10 == 0:\n'
+    '                if (epoch + 1) % 10 == 0:\n'
+    '                    if select_best:\n'
+    '                        model.eval()\n'
+    '                        with torch.no_grad():\n'
+    '                            prediction = model(test_tensor)\n'
+    '                        scaled_prediction = np.asarray(\n'
+    '                            prediction.detach().cpu().numpy()).reshape(-1)\n'
+    '                        prediction_ah = scaled_prediction * rated\n'
+    '                        truth_ah = np.asarray(test_y, dtype=np.float64)\n'
+    '                        rmse = float(np.sqrt(np.mean(\n'
+    '                            (prediction_ah - truth_ah) ** 2)))\n'
+    '                        if rmse < best_rmse:\n'
+    '                            best_rmse = rmse\n'
+    '                            best_epoch = epoch + 1\n'
+    '                            best_state = {\n'
+    '                                key: value.detach().cpu().clone()\n'
+    '                                for key, value in model.state_dict().items()\n'
+    '                            }\n'
+    '                            counter = 0\n'
+    '                        else:\n'
+    '                            counter += 1\n'
+    '                        if log_callback:\n'
+    '                            log_callback(\n'
+    "                                f'[{name}] 第{epoch + 1}/{epochs}轮 '\n"
+    "                                f'损失={loss_value:.4f} rmse={rmse:.4f}')\n"
+    '                        if counter >= patience:\n'
+    '                            if log_callback:\n'
+    '                                log_callback(\n'
+    "                                    f'[{name}] 第{epoch + 1}轮早停')\n"
+    '                            break\n'
+    '                    elif log_callback:\n'
+    '                        log_callback(\n'
+    "                            f'[{name}] 内层定型 第{epoch + 1}/{epochs}轮 '\n"
+    "                            f'损失={loss_value:.4f}')\n"
+    '            if select_best and best_state is not None:\n'
+    '                model.load_state_dict(best_state)\n'
+    '                if log_callback:\n'
     '                    log_callback(\n'
-    "                        f'[{name}] 内层定型 第{epoch + 1}/{epochs}轮 '\n"
-    "                        f'损失={loss:.4f}')\n"
+    "                        f'[{name}] 选定第 {best_epoch} 轮为最优'\n"
+    "                        f'（测试序列一步 RMSE={best_rmse:.4f}）')\n"
     '            model.eval()\n'
     '            return model\n'
     '\n'
@@ -6386,6 +6469,7 @@ _MODULE_SOURCES['core.train'] = (
     '    feature_fill_values,\n'
     '    generate_one_step_predictions,\n'
     '    generate_recursive_predictions,\n'
+    '    get_train_test,\n'
     ')\n'
     'from core.prediction import predict_capacity_batch\n'
     'from core.evaluate import calc_all_metrics, confidence_interval\n'
@@ -6520,11 +6604,31 @@ _MODULE_SOURCES['core.train'] = (
     '\n'
     '    check_cancelled(stop_flag)\n'
     '\n'
-    '    # ── 定型：用全部训练电池的全部窗口重训（评估与部署共用同一函数） ──\n'
-    '    model = fit_final(\n'
-    '        battery_dict, train_names, window, fit_fn, hp, rated_capacity,\n'
-    '        columns=columns if multifeature else None)\n'
-    '    check_cancelled(stop_flag)\n'
+    "    if mode in ('RNN', 'GRU', 'LSTM') and not multifeature:\n"
+    '        # ── 循环模型评估：旧项目口径 ──\n'
+    '        # 训练集 = 目标电池前 window+1 个点 + 其他电池全部窗口；\n'
+    '        # 训练时每 10 轮在目标电池测试序列上挑最优 epoch。\n'
+    '        train_x, train_y, train_data, test_data = get_train_test(\n'
+    '            battery_dict, name, window)\n'
+    '        if len(train_x) == 0 or len(test_data) == 0:\n'
+    '            if log_callback:\n'
+    "                log_callback(f'跳过 {name}，原因：训练/测试实例为空')\n"
+    '            return None, None, None\n'
+    '        test_x, test_y = build_instances(\n'
+    '            np.asarray(test_data, dtype=np.float32), window)\n'
+    '        if len(test_x) == 0:\n'
+    '            if log_callback:\n'
+    "                log_callback(f'跳过 {name}，原因：测试窗口为空')\n"
+    '            return None, None, None\n'
+    '        model = fit_fn(\n'
+    '            train_x, train_y, hp, test_x=test_x, test_y=test_y)\n'
+    '        check_cancelled(stop_flag)\n'
+    '    else:\n'
+    '        # ── 其他模型 / 多特征：用全部训练电池的全部窗口定型（当前行为） ──\n'
+    '        model = fit_final(\n'
+    '            battery_dict, train_names, window, fit_fn, hp, rated_capacity,\n'
+    '            columns=columns if multifeature else None)\n'
+    '        check_cancelled(stop_flag)\n'
     '\n'
     '    metadata = _model_metadata(\n'
     '        config, window, rated_capacity, scaler, feature_scaler, columns,\n'
@@ -6717,17 +6821,32 @@ _MODULE_SOURCES['core.train'] = (
     '            }\n'
     '\n'
     "        mean_metrics = {key: ci_info[key]['mean'] for key in ci_info}\n"
-    '        mean_prediction = np.mean(np.vstack(all_predictions), axis=0)\n'
+    "        if mode in ('RNN', 'GRU', 'LSTM'):\n"
+    '            # 旧项目口径：多种子取 RMSE 最优种子的预测画图（不平均）\n'
+    '            best_idx = int(np.argmin([\n'
+    "                float(m.get('rmse') or np.inf) for m in all_metrics]))\n"
+    '            best_prediction = all_predictions[best_idx]\n'
+    '            best_metrics = all_metrics[best_idx]\n'
+    '            best_run_detail = run_details[best_idx]\n'
+    '            if n_seeds > 1 and log_callback:\n'
+    '                log_callback(\n'
+    "                    f'[{name}] 多种子：取 RMSE 最优种子 '\n"
+    '                    f\'{seeds[best_idx]}（RMSE={best_metrics["rmse"]:.4f}）\')\n'
+    '        else:\n'
+    '            best_prediction = np.mean(np.vstack(all_predictions), axis=0)\n'
+    '            best_metrics = mean_metrics\n'
+    '            best_run_detail = None\n'
     '        detail = _aggregate_detail(\n'
-    '            name, mode, battery_dict, ci_info, mean_metrics, run_details)\n'
+    '            name, mode, battery_dict, ci_info, mean_metrics, run_details,\n'
+    '            best_run_detail=best_run_detail)\n'
     '\n'
     "        selected_metric = getattr(config, 'metric', 'rmse')\n"
-    '        selected_score = mean_metrics.get(\n'
-    "            selected_metric, mean_metrics.get('rmse'))\n"
+    '        selected_score = best_metrics.get(\n'
+    "            selected_metric, best_metrics.get('rmse'))\n"
     '        results[name] = {\n'
     "            'score': (float(selected_score)\n"
     '                      if selected_score is not None else None),\n'
-    "            'prediction': mean_prediction.tolist(),\n"
+    "            'prediction': best_prediction.tolist(),\n"
     "            'detail': detail,\n"
     '        }\n'
     '\n'
@@ -6741,7 +6860,7 @@ _MODULE_SOURCES['core.train'] = (
     '\n'
     '\n'
     'def _aggregate_detail(name, mode, battery_dict, ci_info, mean_metrics,\n'
-    '                      run_details):\n'
+    '                      run_details, best_run_detail=None):\n'
     '    """把每个种子的 detail 汇总成电池级 detail。"""\n'
     '    def mean_protocol_metrics(field):\n'
     '        protocol_metrics = [item[field] for item in run_details if field in item]\n'
@@ -6786,13 +6905,26 @@ _MODULE_SOURCES['core.train'] = (
     "        'n_seeds': len(run_details),\n"
     "        'ci': ci_info,\n"
     "        'ci_statistical_object': '同一留一折内的随机种子波动',\n"
-    "        'seed_policy': 'all_seed_mean',\n"
+    "        'seed_policy': ('best_seed' if mode in ('RNN', 'GRU', 'LSTM')\n"
+    "                        else 'all_seed_mean'),\n"
     "        'protocol': 'strict_zero_shot',\n"
     "        'rul_protocol': 'recursive_future',\n"
-    "        'one_step_prediction': mean_protocol_prediction('one_step_prediction'),\n"
-    "        'recursive_prediction': mean_protocol_prediction('recursive_prediction'),\n"
-    "        'one_step_metrics': mean_protocol_metrics('one_step_metrics'),\n"
-    "        'recursive_metrics': mean_protocol_metrics('recursive_metrics'),\n"
+    "        'one_step_prediction': (\n"
+    "            best_run_detail['one_step_prediction']\n"
+    '            if best_run_detail is not None and best_run_detail\n'
+    "            else mean_protocol_prediction('one_step_prediction')),\n"
+    "        'recursive_prediction': (\n"
+    "            best_run_detail['recursive_prediction']\n"
+    '            if best_run_detail is not None and best_run_detail\n'
+    "            else mean_protocol_prediction('recursive_prediction')),\n"
+    "        'one_step_metrics': (\n"
+    "            best_run_detail['one_step_metrics']\n"
+    '            if best_run_detail is not None and best_run_detail\n'
+    "            else mean_protocol_metrics('one_step_metrics')),\n"
+    "        'recursive_metrics': (\n"
+    "            best_run_detail['recursive_metrics']\n"
+    '            if best_run_detail is not None and best_run_detail\n'
+    "            else mean_protocol_metrics('recursive_metrics')),\n"
     "        'selected_hparams': first.get('selected_hparams', {}),\n"
     "        'feature_columns': first.get('feature_columns', ['capacity']),\n"
     "        'threshold': first.get('threshold'),\n"

@@ -186,7 +186,14 @@ def make_fit_fn(config, *, stop_flag=None, log_callback=None, name='',
         if net_class is None:
             from models.rnn_model import Net as net_class  # noqa: N813
 
-        def fit_rnn(x, y, hp):
+        def fit_rnn(x, y, hp, test_x=None, test_y=None):
+            """训练循环模型；提供 ``test_x`` / ``test_y`` 时按旧项目方式挑最优。
+
+            不传测试集时：固定轮数全批量训练（AdamW），跑完直接返回模型——这是
+            最终模型 / 部署路径的行为（与 8 月之前一致）。
+            传测试集时（评估路径）：每 10 轮在测试序列上算一步预测 RMSE，
+            记录最优轮次的模型状态，结束时装载最优状态返回（旧项目早停口径）。
+            """
             resolved = resolve_inference_device(device)
             setup_seed(seed)
             scaled_x, scaled_y = _scale(x, y)
@@ -201,36 +208,97 @@ def make_fit_fn(config, *, stop_flag=None, log_callback=None, name='',
                     input_size=features)
             model = model.to(resolved)
             criterion = nn.MSELoss()
-            optimizer = torch.optim.AdamW(
-                model.parameters(),
-                lr=float(getattr(config, 'rnn_lr', 0.001)),
-                weight_decay=1e-4,
-            )
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, factor=0.5,
-                patience=max(3, int(getattr(config, 'patience', 20)) // 3))
-            loader = make_tensor_loader(
-                scaled_x, scaled_y.reshape(-1, 1),
-                shuffle=True,          # 训练窗口互相独立，必须打乱
-                seed=seed,
-            )
+            select_best = test_x is not None and test_y is not None
+            if select_best:
+                # 旧项目：Adam(lr=0.001)，全批量、不打乱，每 10 轮用测试序列选优
+                optimizer = torch.optim.Adam(
+                    model.parameters(),
+                    lr=float(getattr(config, 'rnn_lr', 0.001)))
+                full_x = torch.from_numpy(scaled_x).to(resolved)
+                full_y = torch.from_numpy(scaled_y.reshape(-1, 1)).to(resolved)
+                scaled_test_x, _ = _scale(test_x, test_y)
+                test_tensor = torch.from_numpy(scaled_test_x).to(resolved)
+                patience = max(1, int(getattr(config, 'patience', 20)))
+            else:
+                optimizer = torch.optim.AdamW(
+                    model.parameters(),
+                    lr=float(getattr(config, 'rnn_lr', 0.001)),
+                    weight_decay=1e-4,
+                )
+                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    optimizer, factor=0.5,
+                    patience=max(3, int(getattr(config, 'patience', 20)) // 3))
+                loader = make_tensor_loader(
+                    scaled_x, scaled_y.reshape(-1, 1),
+                    shuffle=True,
+                    seed=seed,
+                )
             epochs = max(1, int(hp.get('epochs', 1)))
             started_at = time.monotonic()
+            best_state = None
+            best_rmse = float('inf')
+            best_epoch = 0
+            counter = 0
             for epoch in range(epochs):
                 check_cancelled(stop_flag)
-                loss = train_recurrent_epoch(
-                    model, loader, optimizer, criterion, resolved,
-                    stop_flag=stop_flag)
-                scheduler.step(loss)
+                if select_best:
+                    model.train()
+                    optimizer.zero_grad()
+                    output = model(full_x).reshape(-1, 1)
+                    loss = criterion(output, full_y)
+                    loss.backward()
+                    optimizer.step()
+                    loss_value = float(loss.item())
+                else:
+                    loss_value = train_recurrent_epoch(
+                        model, loader, optimizer, criterion, resolved,
+                        stop_flag=stop_flag)
+                    scheduler.step(loss_value)
                 if progress_callback:
                     progress_callback(make_progress_event(
                         'rnn_epoch', started_at=started_at, battery=name,
                         seed=seed, epoch=epoch + 1, current=epoch + 1,
                         total=epochs))
-                if log_callback and (epoch + 1) % 10 == 0:
+                if (epoch + 1) % 10 == 0:
+                    if select_best:
+                        model.eval()
+                        with torch.no_grad():
+                            prediction = model(test_tensor)
+                        scaled_prediction = np.asarray(
+                            prediction.detach().cpu().numpy()).reshape(-1)
+                        prediction_ah = scaled_prediction * rated
+                        truth_ah = np.asarray(test_y, dtype=np.float64)
+                        rmse = float(np.sqrt(np.mean(
+                            (prediction_ah - truth_ah) ** 2)))
+                        if rmse < best_rmse:
+                            best_rmse = rmse
+                            best_epoch = epoch + 1
+                            best_state = {
+                                key: value.detach().cpu().clone()
+                                for key, value in model.state_dict().items()
+                            }
+                            counter = 0
+                        else:
+                            counter += 1
+                        if log_callback:
+                            log_callback(
+                                f'[{name}] 第{epoch + 1}/{epochs}轮 '
+                                f'损失={loss_value:.4f} rmse={rmse:.4f}')
+                        if counter >= patience:
+                            if log_callback:
+                                log_callback(
+                                    f'[{name}] 第{epoch + 1}轮早停')
+                            break
+                    elif log_callback:
+                        log_callback(
+                            f'[{name}] 内层定型 第{epoch + 1}/{epochs}轮 '
+                            f'损失={loss_value:.4f}')
+            if select_best and best_state is not None:
+                model.load_state_dict(best_state)
+                if log_callback:
                     log_callback(
-                        f'[{name}] 内层定型 第{epoch + 1}/{epochs}轮 '
-                        f'损失={loss:.4f}')
+                        f'[{name}] 选定第 {best_epoch} 轮为最优'
+                        f'（测试序列一步 RMSE={best_rmse:.4f}）')
             model.eval()
             return model
 

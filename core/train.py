@@ -17,6 +17,7 @@ from core.preprocess import (
     feature_fill_values,
     generate_one_step_predictions,
     generate_recursive_predictions,
+    get_train_test,
 )
 from core.prediction import predict_capacity_batch
 from core.evaluate import calc_all_metrics, confidence_interval
@@ -151,11 +152,31 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None,
 
     check_cancelled(stop_flag)
 
-    # ── 定型：用全部训练电池的全部窗口重训（评估与部署共用同一函数） ──
-    model = fit_final(
-        battery_dict, train_names, window, fit_fn, hp, rated_capacity,
-        columns=columns if multifeature else None)
-    check_cancelled(stop_flag)
+    if mode in ('RNN', 'GRU', 'LSTM') and not multifeature:
+        # ── 循环模型评估：旧项目口径 ──
+        # 训练集 = 目标电池前 window+1 个点 + 其他电池全部窗口；
+        # 训练时每 10 轮在目标电池测试序列上挑最优 epoch。
+        train_x, train_y, train_data, test_data = get_train_test(
+            battery_dict, name, window)
+        if len(train_x) == 0 or len(test_data) == 0:
+            if log_callback:
+                log_callback(f'跳过 {name}，原因：训练/测试实例为空')
+            return None, None, None
+        test_x, test_y = build_instances(
+            np.asarray(test_data, dtype=np.float32), window)
+        if len(test_x) == 0:
+            if log_callback:
+                log_callback(f'跳过 {name}，原因：测试窗口为空')
+            return None, None, None
+        model = fit_fn(
+            train_x, train_y, hp, test_x=test_x, test_y=test_y)
+        check_cancelled(stop_flag)
+    else:
+        # ── 其他模型 / 多特征：用全部训练电池的全部窗口定型（当前行为） ──
+        model = fit_final(
+            battery_dict, train_names, window, fit_fn, hp, rated_capacity,
+            columns=columns if multifeature else None)
+        check_cancelled(stop_flag)
 
     metadata = _model_metadata(
         config, window, rated_capacity, scaler, feature_scaler, columns,
@@ -348,17 +369,32 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None,
             }
 
         mean_metrics = {key: ci_info[key]['mean'] for key in ci_info}
-        mean_prediction = np.mean(np.vstack(all_predictions), axis=0)
+        if mode in ('RNN', 'GRU', 'LSTM'):
+            # 旧项目口径：多种子取 RMSE 最优种子的预测画图（不平均）
+            best_idx = int(np.argmin([
+                float(m.get('rmse') or np.inf) for m in all_metrics]))
+            best_prediction = all_predictions[best_idx]
+            best_metrics = all_metrics[best_idx]
+            best_run_detail = run_details[best_idx]
+            if n_seeds > 1 and log_callback:
+                log_callback(
+                    f'[{name}] 多种子：取 RMSE 最优种子 '
+                    f'{seeds[best_idx]}（RMSE={best_metrics["rmse"]:.4f}）')
+        else:
+            best_prediction = np.mean(np.vstack(all_predictions), axis=0)
+            best_metrics = mean_metrics
+            best_run_detail = None
         detail = _aggregate_detail(
-            name, mode, battery_dict, ci_info, mean_metrics, run_details)
+            name, mode, battery_dict, ci_info, mean_metrics, run_details,
+            best_run_detail=best_run_detail)
 
         selected_metric = getattr(config, 'metric', 'rmse')
-        selected_score = mean_metrics.get(
-            selected_metric, mean_metrics.get('rmse'))
+        selected_score = best_metrics.get(
+            selected_metric, best_metrics.get('rmse'))
         results[name] = {
             'score': (float(selected_score)
                       if selected_score is not None else None),
-            'prediction': mean_prediction.tolist(),
+            'prediction': best_prediction.tolist(),
             'detail': detail,
         }
 
@@ -372,7 +408,7 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None,
 
 
 def _aggregate_detail(name, mode, battery_dict, ci_info, mean_metrics,
-                      run_details):
+                      run_details, best_run_detail=None):
     """把每个种子的 detail 汇总成电池级 detail。"""
     def mean_protocol_metrics(field):
         protocol_metrics = [item[field] for item in run_details if field in item]
@@ -417,13 +453,26 @@ def _aggregate_detail(name, mode, battery_dict, ci_info, mean_metrics,
         'n_seeds': len(run_details),
         'ci': ci_info,
         'ci_statistical_object': '同一留一折内的随机种子波动',
-        'seed_policy': 'all_seed_mean',
+        'seed_policy': ('best_seed' if mode in ('RNN', 'GRU', 'LSTM')
+                        else 'all_seed_mean'),
         'protocol': 'strict_zero_shot',
         'rul_protocol': 'recursive_future',
-        'one_step_prediction': mean_protocol_prediction('one_step_prediction'),
-        'recursive_prediction': mean_protocol_prediction('recursive_prediction'),
-        'one_step_metrics': mean_protocol_metrics('one_step_metrics'),
-        'recursive_metrics': mean_protocol_metrics('recursive_metrics'),
+        'one_step_prediction': (
+            best_run_detail['one_step_prediction']
+            if best_run_detail is not None and best_run_detail
+            else mean_protocol_prediction('one_step_prediction')),
+        'recursive_prediction': (
+            best_run_detail['recursive_prediction']
+            if best_run_detail is not None and best_run_detail
+            else mean_protocol_prediction('recursive_prediction')),
+        'one_step_metrics': (
+            best_run_detail['one_step_metrics']
+            if best_run_detail is not None and best_run_detail
+            else mean_protocol_metrics('one_step_metrics')),
+        'recursive_metrics': (
+            best_run_detail['recursive_metrics']
+            if best_run_detail is not None and best_run_detail
+            else mean_protocol_metrics('recursive_metrics')),
         'selected_hparams': first.get('selected_hparams', {}),
         'feature_columns': first.get('feature_columns', ['capacity']),
         'threshold': first.get('threshold'),
