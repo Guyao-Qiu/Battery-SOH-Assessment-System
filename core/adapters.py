@@ -90,7 +90,7 @@ class BatteryDataAdapter(ABC):
     @abstractmethod
     def load_battery_data(self, paths, voltage_upper, voltage_lower,
                           cc_step, cv_step, discharge_step,
-                          log_callback, stop_flag) -> tuple:
+                          log_callback, stop_flag, outlier_mode='mark') -> tuple:
         """
         加载电池数据，返回 (battery_dict, battery_list)
 
@@ -103,6 +103,7 @@ class BatteryDataAdapter(ABC):
             discharge_step  : 放电工步序号
             log_callback    : 日志回调函数
             stop_flag       : 停止标志函数（返回 True 时中止）
+            outlier_mode    : 异常容量点处理（'mark' / 'delete' / 'off'）
 
         返回:
             battery_dict[name] = pd.DataFrame(cycle, capacity, dq_v, resistance, CCCT, CVCT)
@@ -300,7 +301,12 @@ def _build_battery_dataframe(cycle_indices, discharge_capacities, health_indicat
     idx = filter_result.indices
 
     if log_callback:
-        if outlier_mode == 'delete':
+        if outlier_mode == 'chunked':
+            log_callback(
+                '数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，'
+                '窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。'
+                '边界点和稳定窗口保留，持续退化膝点受到保护。')
+        elif outlier_mode == 'delete':
             log_callback(
                 '数据筛选原则：每个容量点只参考此前最多 40 个有效循环，'
                 '按历史均值 μ 与标准差 σ 剔除异常点。'
@@ -401,7 +407,7 @@ class CALCEAdapter(BatteryDataAdapter):
 
     def load_battery_data(self, paths, voltage_upper, voltage_lower,
                           cc_step, cv_step, discharge_step,
-                          log_callback, stop_flag):
+                          log_callback, stop_flag, outlier_mode='mark'):
         battery_dict = {}
         battery_list = []
 
@@ -479,7 +485,7 @@ class CALCEAdapter(BatteryDataAdapter):
 
             df_result = _build_battery_dataframe(
                 all_cycles, all_cap, all_soh, all_ir, all_ccct, all_cvct,
-                name, log_callback
+                name, log_callback, outlier_mode=outlier_mode
             )
             if df_result is not None:
                 if name in battery_dict:
@@ -521,7 +527,8 @@ class NASAAdapter(BatteryDataAdapter):
 
     def load_battery_data(self, paths, voltage_upper, voltage_lower,
                           cc_step, cv_step, discharge_step,
-                          log_callback, stop_flag, v_cv=None):
+                          log_callback, stop_flag, v_cv=None,
+                          outlier_mode='mark'):
         try:
             from scipy.io import loadmat
         except ImportError:
@@ -689,7 +696,8 @@ class NASAAdapter(BatteryDataAdapter):
             df_result = _build_battery_dataframe(
                 discharge_cycles, discharge_capacities, health_indicator,
                 internal_resistance, CCCT, CVCT,
-                name, log_callback, raw_index=discharge_raw_index
+                name, log_callback, raw_index=discharge_raw_index,
+                outlier_mode=outlier_mode
             )
             if df_result is not None:
                 if name in battery_dict:

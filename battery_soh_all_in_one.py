@@ -3,7 +3,7 @@
 #  Battery SOH Assessment System —— 单文件整合版 (All-in-One)
 # ===========================================================================
 #  本文件由 scripts/build_all_in_one.py 自动生成，请勿手工编辑。
-#  生成时间: 2026-10-19 10:41:50
+#  生成时间: 2026-10-19 11:24:08
 #  内嵌模块: 41 个（原 core/ models/ ui/ utils/ 全部源码）
 #
 #  运行方式:
@@ -731,7 +731,8 @@ _EMBEDDED_CONFIG = (
         'ICJzdWJzYW1wbGUiOiAxLjAsDQogICJjb2xzYW1wbGVfYnl0cmVlIjogMS4wLA0KICAibWluX3Nh'
         'bXBsZXNfbGVhZiI6IDEsDQogICJtYXhfZmVhdHVyZXMiOiAxLjAsDQogICJwYXRpZW5jZSI6IDIw'
         'LA0KICAiYWRhcHRlcl90eXBlIjogIkNBTENFIiwNCiAgImNjX3N0ZXAiOiAyLA0KICAiY3Zfc3Rl'
-        'cCI6IDQsDQogICJkaXNjaGFyZ2Vfc3RlcCI6IDcNCn0='
+        'cCI6IDQsDQogICJkaXNjaGFyZ2Vfc3RlcCI6IDcsDQogICJvdXRsaWVyX21vZGUiOiAiY2h1bmtl'
+        'ZCINCn0='
 )
 
 # ---------------------------------------------------------------------------
@@ -1252,6 +1253,11 @@ _MODULE_SOURCES['utils.config'] = (
     '    cc_step: Optional[int] = None\n'
     '    cv_step: Optional[int] = None\n'
     '    discharge_step: Optional[int] = None\n'
+    "    # 异常容量点处理：'chunked'（分块 2σ 剔除，容量曲线平滑，与官方参考\n"
+    "    # 实现一致，默认）/ 'mark'（只标记保留，防评估泄漏）/ 'delete'\n"
+    "    # （滑动因果窗口剔除）/ 'off'（不检测）。\n"
+    '    # 取值集合与 core.preprocess.OUTLIER_MODES 保持一致。\n'
+    "    outlier_mode: str = 'chunked'\n"
     '\n'
     '    def __post_init__(self):\n'
     '        self.mode = normalize_model_name(self.mode)\n'
@@ -1265,6 +1271,9 @@ _MODULE_SOURCES['utils.config'] = (
     '            self.eol_debounce = max(1, int(self.eol_debounce))\n'
     '        except (TypeError, ValueError):\n'
     '            self.eol_debounce = 1\n'
+    "        if self.outlier_mode not in ('delete', 'mark', 'off', 'chunked'):\n"
+    '            raise ValueError(\n'
+    "                f'不支持的离群点模式: {self.outlier_mode}（可选 chunked/mark/delete/off）')\n"
     '        if self.adapter_type not in ADAPTER_UI:\n'
     "            raise ValueError(f'不支持的数据源适配器: {self.adapter_type}')\n"
     '\n'
@@ -2701,8 +2710,84 @@ _MODULE_SOURCES['core.preprocess'] = (
     "#:   ``'mark'``  —— 只标记可疑点，**保留数据**（默认）。窗口均值对快速下降段和\n"
     '#:                 NASA 的容量再生（真实物理，不是噪声）都会滞后，直接删会误伤。\n'
     "#:   ``'delete'``—— 真的丢弃（旧行为，对含趋势序列容易误判）。\n"
+    "#:   ``'chunked'``—— 分块窗口版（2026-08 之前的行为）：每 40 循环一个块，\n"
+    '#:                 块内均值±2σ 判定。对单点深尖峰更敏感，容量曲线最平滑，\n'
+    '#:                 与官方参考实现的结果一致；但块内统计会读到未来循环，\n'
+    '#:                 仅用于「复现参考效果」的场合。\n'
     "#:   ``'off'``   —— 完全不检测。\n"
-    "OUTLIER_MODES = ('off', 'mark', 'delete')\n"
+    "OUTLIER_MODES = ('off', 'mark', 'delete', 'chunked')\n"
+    '\n'
+    '\n'
+    'def _filter_capacity_outliers_chunked(array, bins=40, protect_knees=True):\n'
+    '    """分块 2σ 过滤（2026-08 之前的实现），作为 ``chunked`` 模式保留。"""\n'
+    '    values = np.asarray(array, dtype=np.float64).reshape(-1)\n'
+    '    if bins <= 0:\n'
+    "        raise ValueError('异常值窗口大小必须大于 0')\n"
+    '    finite = np.isfinite(values)\n'
+    '    mask = finite.copy()\n'
+    '    reasons = {\n'
+    "        int(index): '非有限容量值'\n"
+    '        for index in np.flatnonzero(~finite)\n'
+    '    }\n'
+    '    protected = set()\n'
+    '\n'
+    '    for start in range(0, len(values), bins):\n'
+    '        end = min(start + bins, len(values))\n'
+    '        local = values[start:end]\n'
+    '        local_finite = np.isfinite(local)\n'
+    '        finite_values = local[local_finite]\n'
+    '        if len(finite_values) < 3:\n'
+    '            continue\n'
+    '        sigma = float(np.std(finite_values))\n'
+    '        mean = float(np.mean(finite_values))\n'
+    '        tolerance = max(1e-12, abs(mean) * 1e-12)\n'
+    '        if sigma <= tolerance:\n'
+    '            continue\n'
+    '        lower = mean - 2 * sigma\n'
+    '        upper = mean + 2 * sigma\n'
+    '        in_range = ((local >= lower - tolerance) &\n'
+    '                    (local <= upper + tolerance) & local_finite)\n'
+    '        for local_index in np.flatnonzero(local_finite & ~in_range):\n'
+    '            index = start + int(local_index)\n'
+    '            mask[index] = False\n'
+    '            reasons[index] = (\n'
+    "                f'超出局部均值±2σ范围 [{lower:.6g}, {upper:.6g}]')\n"
+    '\n'
+    '        if protect_knees:\n'
+    '            candidates = [\n'
+    '                index for index in range(start, end)\n'
+    '                if finite[index] and not mask[index]]\n'
+    '            for index in candidates:\n'
+    '                if index == start or index + 2 >= end:\n'
+    '                    continue\n'
+    '                previous = values[index - 1]\n'
+    '                future = values[index:min(index + 3, end)]\n'
+    '                drop_threshold = max(abs(previous) * 0.02, tolerance)\n'
+    '                persistent_drop = (\n'
+    '                    previous - values[index] >= drop_threshold and\n'
+    '                    len(future) >= 3 and\n'
+    '                    np.all(np.diff(future) <= tolerance))\n'
+    '                if not persistent_drop:\n'
+    '                    continue\n'
+    '                for candidate in candidates:\n'
+    '                    if candidate >= index and values[candidate] <= (\n'
+    '                            previous + tolerance):\n'
+    '                        mask[candidate] = True\n'
+    '                        protected.add(candidate)\n'
+    '                        reasons.pop(candidate, None)\n'
+    '                break\n'
+    '\n'
+    '    indices = np.flatnonzero(mask).astype(int)\n'
+    '    removed = np.flatnonzero(~mask).astype(int)\n'
+    '    marked = np.flatnonzero(~mask & finite).astype(int)\n'
+    '    return OutlierFilterResult(\n'
+    '        indices=indices,\n'
+    '        mask=mask,\n'
+    '        removed_indices=removed,\n'
+    '        protected_indices=np.asarray(sorted(protected), dtype=int),\n'
+    '        reasons=reasons,\n'
+    '        marked_indices=marked,\n'
+    '    )\n'
     '\n'
     '\n'
     'def filter_capacity_outliers(array, bins=40, enabled=True,\n'
@@ -2714,6 +2799,9 @@ _MODULE_SOURCES['core.preprocess'] = (
     "    ``'off'`` 不检测。``enabled=False`` 等价于 ``mode='off'``；\n"
     '    显式给了 ``mode`` 时以 ``mode`` 为准。\n'
     '    """\n'
+    "    if mode == 'chunked':\n"
+    '        return _filter_capacity_outliers_chunked(\n'
+    '            array, bins=bins, protect_knees=protect_knees)\n'
     '    values = np.asarray(array, dtype=np.float64).reshape(-1)\n'
     '    if bins <= 0:\n'
     "        raise ValueError('异常值窗口大小必须大于 0')\n"
@@ -4695,7 +4783,7 @@ _MODULE_SOURCES['core.adapters'] = (
     '    @abstractmethod\n'
     '    def load_battery_data(self, paths, voltage_upper, voltage_lower,\n'
     '                          cc_step, cv_step, discharge_step,\n'
-    '                          log_callback, stop_flag) -> tuple:\n'
+    "                          log_callback, stop_flag, outlier_mode='mark') -> tuple:\n"
     '        """\n'
     '        加载电池数据，返回 (battery_dict, battery_list)\n'
     '\n'
@@ -4708,6 +4796,7 @@ _MODULE_SOURCES['core.adapters'] = (
     '            discharge_step  : 放电工步序号\n'
     '            log_callback    : 日志回调函数\n'
     '            stop_flag       : 停止标志函数（返回 True 时中止）\n'
+    "            outlier_mode    : 异常容量点处理（'mark' / 'delete' / 'off'）\n"
     '\n'
     '        返回:\n'
     '            battery_dict[name] = pd.DataFrame(cycle, capacity, dq_v, resistance, CCCT, CVCT)\n'
@@ -4905,7 +4994,12 @@ _MODULE_SOURCES['core.adapters'] = (
     '    idx = filter_result.indices\n'
     '\n'
     '    if log_callback:\n'
-    "        if outlier_mode == 'delete':\n"
+    "        if outlier_mode == 'chunked':\n"
+    '            log_callback(\n'
+    "                '数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，'\n"
+    "                '窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。'\n"
+    "                '边界点和稳定窗口保留，持续退化膝点受到保护。')\n"
+    "        elif outlier_mode == 'delete':\n"
     '            log_callback(\n'
     "                '数据筛选原则：每个容量点只参考此前最多 40 个有效循环，'\n"
     "                '按历史均值 μ 与标准差 σ 剔除异常点。'\n"
@@ -5006,7 +5100,7 @@ _MODULE_SOURCES['core.adapters'] = (
     '\n'
     '    def load_battery_data(self, paths, voltage_upper, voltage_lower,\n'
     '                          cc_step, cv_step, discharge_step,\n'
-    '                          log_callback, stop_flag):\n'
+    "                          log_callback, stop_flag, outlier_mode='mark'):\n"
     '        battery_dict = {}\n'
     '        battery_list = []\n'
     '\n'
@@ -5084,7 +5178,7 @@ _MODULE_SOURCES['core.adapters'] = (
     '\n'
     '            df_result = _build_battery_dataframe(\n'
     '                all_cycles, all_cap, all_soh, all_ir, all_ccct, all_cvct,\n'
-    '                name, log_callback\n'
+    '                name, log_callback, outlier_mode=outlier_mode\n'
     '            )\n'
     '            if df_result is not None:\n'
     '                if name in battery_dict:\n'
@@ -5126,7 +5220,8 @@ _MODULE_SOURCES['core.adapters'] = (
     '\n'
     '    def load_battery_data(self, paths, voltage_upper, voltage_lower,\n'
     '                          cc_step, cv_step, discharge_step,\n'
-    '                          log_callback, stop_flag, v_cv=None):\n'
+    '                          log_callback, stop_flag, v_cv=None,\n'
+    "                          outlier_mode='mark'):\n"
     '        try:\n'
     '            from scipy.io import loadmat\n'
     '        except ImportError:\n'
@@ -5294,7 +5389,8 @@ _MODULE_SOURCES['core.adapters'] = (
     '            df_result = _build_battery_dataframe(\n'
     '                discharge_cycles, discharge_capacities, health_indicator,\n'
     '                internal_resistance, CCCT, CVCT,\n'
-    '                name, log_callback, raw_index=discharge_raw_index\n'
+    '                name, log_callback, raw_index=discharge_raw_index,\n'
+    '                outlier_mode=outlier_mode\n'
     '            )\n'
     '            if df_result is not None:\n'
     '                if name in battery_dict:\n'
@@ -5449,7 +5545,8 @@ _MODULE_SOURCES['core.dataload'] = (
     'def load_battery_from_paths(imported_paths, log_callback=None, stop_flag=None,\n'
     '                           voltage_upper=3.8, voltage_lower=3.4,\n'
     "                           adapter_type='CALCE',\n"
-    '                           cc_step=2, cv_step=4, discharge_step=7):\n'
+    '                           cc_step=2, cv_step=4, discharge_step=7,\n'
+    "                           outlier_mode='mark'):\n"
     '    """加载电池数据，自动选择适配器处理不同格式。\n'
     '\n'
     '    参数:\n'
@@ -5462,6 +5559,8 @@ _MODULE_SOURCES['core.dataload'] = (
     '        cc_step        : 恒流充电工步序号\n'
     '        cv_step        : 恒压充电工步序号\n'
     '        discharge_step : 放电工步序号\n'
+    "        outlier_mode   : 异常容量点处理：``'mark'``（只标记保留，防评估泄漏）\n"
+    "                         / ``'delete'``（剔除，曲线平滑如参考实现）/ ``'off'``\n"
     '\n'
     '    返回:\n'
     '        (battery_dict, battery_list)\n'
@@ -5470,7 +5569,7 @@ _MODULE_SOURCES['core.dataload'] = (
     '    return adapter.load_battery_data(\n'
     '        imported_paths, voltage_upper, voltage_lower,\n'
     '        cc_step, cv_step, discharge_step,\n'
-    '        log_callback, stop_flag\n'
+    '        log_callback, stop_flag, outlier_mode=outlier_mode\n'
     '    )\n'
 )
 
@@ -11415,6 +11514,7 @@ _MODULE_SOURCES['ui.worker'] = (
     '                cc_step=self.config.cc_step,\n'
     '                cv_step=self.config.cv_step,\n'
     '                discharge_step=self.config.discharge_step,\n'
+    "                outlier_mode=getattr(self.config, 'outlier_mode', 'mark'),\n"
     '            )\n'
     '\n'
     '            if len(self.battery_dict) == 0:\n'
@@ -11675,6 +11775,7 @@ _MODULE_SOURCES['ui.predict_worker'] = (
     '                cc_step=self.config.cc_step,\n'
     '                cv_step=self.config.cv_step,\n'
     '                discharge_step=self.config.discharge_step,\n'
+    "                outlier_mode=getattr(self.config, 'outlier_mode', 'mark'),\n"
     '            )\n'
     '            if len(self.battery_dict) == 0:\n'
     "                self.error_signal.emit('未成功加载任何有效电池数据。')\n"

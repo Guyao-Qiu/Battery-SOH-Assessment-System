@@ -144,8 +144,84 @@ class CapacityScaler:
 #:   ``'mark'``  —— 只标记可疑点，**保留数据**（默认）。窗口均值对快速下降段和
 #:                 NASA 的容量再生（真实物理，不是噪声）都会滞后，直接删会误伤。
 #:   ``'delete'``—— 真的丢弃（旧行为，对含趋势序列容易误判）。
+#:   ``'chunked'``—— 分块窗口版（2026-08 之前的行为）：每 40 循环一个块，
+#:                 块内均值±2σ 判定。对单点深尖峰更敏感，容量曲线最平滑，
+#:                 与官方参考实现的结果一致；但块内统计会读到未来循环，
+#:                 仅用于「复现参考效果」的场合。
 #:   ``'off'``   —— 完全不检测。
-OUTLIER_MODES = ('off', 'mark', 'delete')
+OUTLIER_MODES = ('off', 'mark', 'delete', 'chunked')
+
+
+def _filter_capacity_outliers_chunked(array, bins=40, protect_knees=True):
+    """分块 2σ 过滤（2026-08 之前的实现），作为 ``chunked`` 模式保留。"""
+    values = np.asarray(array, dtype=np.float64).reshape(-1)
+    if bins <= 0:
+        raise ValueError('异常值窗口大小必须大于 0')
+    finite = np.isfinite(values)
+    mask = finite.copy()
+    reasons = {
+        int(index): '非有限容量值'
+        for index in np.flatnonzero(~finite)
+    }
+    protected = set()
+
+    for start in range(0, len(values), bins):
+        end = min(start + bins, len(values))
+        local = values[start:end]
+        local_finite = np.isfinite(local)
+        finite_values = local[local_finite]
+        if len(finite_values) < 3:
+            continue
+        sigma = float(np.std(finite_values))
+        mean = float(np.mean(finite_values))
+        tolerance = max(1e-12, abs(mean) * 1e-12)
+        if sigma <= tolerance:
+            continue
+        lower = mean - 2 * sigma
+        upper = mean + 2 * sigma
+        in_range = ((local >= lower - tolerance) &
+                    (local <= upper + tolerance) & local_finite)
+        for local_index in np.flatnonzero(local_finite & ~in_range):
+            index = start + int(local_index)
+            mask[index] = False
+            reasons[index] = (
+                f'超出局部均值±2σ范围 [{lower:.6g}, {upper:.6g}]')
+
+        if protect_knees:
+            candidates = [
+                index for index in range(start, end)
+                if finite[index] and not mask[index]]
+            for index in candidates:
+                if index == start or index + 2 >= end:
+                    continue
+                previous = values[index - 1]
+                future = values[index:min(index + 3, end)]
+                drop_threshold = max(abs(previous) * 0.02, tolerance)
+                persistent_drop = (
+                    previous - values[index] >= drop_threshold and
+                    len(future) >= 3 and
+                    np.all(np.diff(future) <= tolerance))
+                if not persistent_drop:
+                    continue
+                for candidate in candidates:
+                    if candidate >= index and values[candidate] <= (
+                            previous + tolerance):
+                        mask[candidate] = True
+                        protected.add(candidate)
+                        reasons.pop(candidate, None)
+                break
+
+    indices = np.flatnonzero(mask).astype(int)
+    removed = np.flatnonzero(~mask).astype(int)
+    marked = np.flatnonzero(~mask & finite).astype(int)
+    return OutlierFilterResult(
+        indices=indices,
+        mask=mask,
+        removed_indices=removed,
+        protected_indices=np.asarray(sorted(protected), dtype=int),
+        reasons=reasons,
+        marked_indices=marked,
+    )
 
 
 def filter_capacity_outliers(array, bins=40, enabled=True,
@@ -157,6 +233,9 @@ def filter_capacity_outliers(array, bins=40, enabled=True,
     ``'off'`` 不检测。``enabled=False`` 等价于 ``mode='off'``；
     显式给了 ``mode`` 时以 ``mode`` 为准。
     """
+    if mode == 'chunked':
+        return _filter_capacity_outliers_chunked(
+            array, bins=bins, protect_knees=protect_knees)
     values = np.asarray(array, dtype=np.float64).reshape(-1)
     if bins <= 0:
         raise ValueError('异常值窗口大小必须大于 0')

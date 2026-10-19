@@ -26,5 +26,6 @@
   "adapter_type": "CALCE",
   "cc_step": 2,
   "cv_step": 4,
-  "discharge_step": 7
+  "discharge_step": 7,
+  "outlier_mode": "chunked"
 }

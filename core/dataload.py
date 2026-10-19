@@ -10,7 +10,8 @@ from .adapters import get_adapter
 def load_battery_from_paths(imported_paths, log_callback=None, stop_flag=None,
                            voltage_upper=3.8, voltage_lower=3.4,
                            adapter_type='CALCE',
-                           cc_step=2, cv_step=4, discharge_step=7):
+                           cc_step=2, cv_step=4, discharge_step=7,
+                           outlier_mode='mark'):
     """加载电池数据，自动选择适配器处理不同格式。
 
     参数:
@@ -23,6 +24,8 @@ def load_battery_from_paths(imported_paths, log_callback=None, stop_flag=None,
         cc_step        : 恒流充电工步序号
         cv_step        : 恒压充电工步序号
         discharge_step : 放电工步序号
+        outlier_mode   : 异常容量点处理：``'mark'``（只标记保留，防评估泄漏）
+                         / ``'delete'``（剔除，曲线平滑如参考实现）/ ``'off'``
 
     返回:
         (battery_dict, battery_list)
@@ -31,5 +34,5 @@ def load_battery_from_paths(imported_paths, log_callback=None, stop_flag=None,
     return adapter.load_battery_data(
         imported_paths, voltage_upper, voltage_lower,
         cc_step, cv_step, discharge_step,
-        log_callback, stop_flag
+        log_callback, stop_flag, outlier_mode=outlier_mode
     )

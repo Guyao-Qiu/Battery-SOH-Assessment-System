@@ -187,6 +187,11 @@ class TrainConfig:
     cc_step: Optional[int] = None
     cv_step: Optional[int] = None
     discharge_step: Optional[int] = None
+    # 异常容量点处理：'chunked'（分块 2σ 剔除，容量曲线平滑，与官方参考
+    # 实现一致，默认）/ 'mark'（只标记保留，防评估泄漏）/ 'delete'
+    # （滑动因果窗口剔除）/ 'off'（不检测）。
+    # 取值集合与 core.preprocess.OUTLIER_MODES 保持一致。
+    outlier_mode: str = 'chunked'
 
     def __post_init__(self):
         self.mode = normalize_model_name(self.mode)
@@ -200,6 +205,9 @@ class TrainConfig:
             self.eol_debounce = max(1, int(self.eol_debounce))
         except (TypeError, ValueError):
             self.eol_debounce = 1
+        if self.outlier_mode not in ('delete', 'mark', 'off', 'chunked'):
+            raise ValueError(
+                f'不支持的离群点模式: {self.outlier_mode}（可选 chunked/mark/delete/off）')
         if self.adapter_type not in ADAPTER_UI:
             raise ValueError(f'不支持的数据源适配器: {self.adapter_type}')
 

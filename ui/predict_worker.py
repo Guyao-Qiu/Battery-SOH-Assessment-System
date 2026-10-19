@@ -125,6 +125,7 @@ class PredictWorker(QThread):
                 cc_step=self.config.cc_step,
                 cv_step=self.config.cv_step,
                 discharge_step=self.config.discharge_step,
+                outlier_mode=getattr(self.config, 'outlier_mode', 'mark'),
             )
             if len(self.battery_dict) == 0:
                 self.error_signal.emit('未成功加载任何有效电池数据。')
