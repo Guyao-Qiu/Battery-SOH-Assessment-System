@@ -1,16 +1,16 @@
 {
   "rated_capacity": 1.1,
-  "threshold_ratio": 0.8,
+  "threshold_ratio": 0.7,
   "voltage_upper": 3.8,
   "voltage_lower": 3.4,
   "window_size": 64,
   "epochs": 100,
   "hidden_dim": 64,
-  "seed": 3,
-  "n_seeds": 2,
+  "seed": 2,
+  "n_seeds": 1,
   "mode": "RNN",
   "metric": "all",
-  "device": "cuda",
+  "device": "cpu",
   "norm_method": "rated",
   "feature_columns": [
     "capacity"
@@ -27,5 +27,13 @@
   "cc_step": 2,
   "cv_step": 4,
   "discharge_step": 7,
-  "outlier_mode": "chunked"
+  "outlier_mode": "chunked",
+  "backbone": "default",
+  "num_layers": 1,
+  "nhead": 1,
+  "transformer_k": 16,
+  "alpha": 0.1,
+  "noise_level": 0.0,
+  "weight_decay": 0.0,
+  "prediction_mode": "one_step"
 }

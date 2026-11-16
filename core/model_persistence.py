@@ -241,15 +241,29 @@ def load_model(filepath, allow_unsafe_joblib=False):
                 for key, value in state_dict.items()):
             raise ValueError('模型权重必须是仅包含张量的 state_dict')
         mode = metadata['mode']
+        backbone = str(metadata.get('backbone', 'default')).strip().lower()
+        num_layers = max(1, int(metadata.get('num_layers', 1)))
         # 多特征模型需要重建正确的 input_size；旧模型（无该字段）回退为 1
         input_size = metadata.get('input_size')
         if isinstance(input_size, bool) or not isinstance(input_size, int) \
                 or input_size < 1:
             input_size = _infer_input_size(state_dict)
-        if input_size == 1:
-            model = Net(hidden_dim=metadata['hidden_dim'], num_layers=1, mode=mode)
+        if backbone in ('transformer', 'detransformer'):
+            from models.rnn_model import DeTransformer
+            model = DeTransformer(
+                feature_size=int(metadata['window_size']),
+                hidden_dim=int(metadata['hidden_dim']),
+                feature_num=max(1, int(metadata.get('transformer_k', 16))),
+                num_layers=num_layers,
+                nhead=max(1, int(metadata.get('nhead', 1))),
+                dropout=0.0,
+                noise_level=float(metadata.get('noise_level', 0.0)),
+                input_size=input_size,
+            )
+        elif input_size == 1:
+            model = Net(hidden_dim=metadata['hidden_dim'], num_layers=num_layers, mode=mode)
         else:
-            model = Net(hidden_dim=metadata['hidden_dim'], num_layers=1,
+            model = Net(hidden_dim=metadata['hidden_dim'], num_layers=num_layers,
                         mode=mode, input_size=input_size)
         try:
             model.load_state_dict(state_dict, strict=True)
@@ -345,6 +359,12 @@ def _final_training_metadata(config, scaler, valid_names, battery_dict,
     if config.mode in RECURRENT_MODES:
         metadata['hidden_dim'] = config.hidden_dim
         metadata['input_size'] = int(len(columns))
+        metadata['backbone'] = str(getattr(config, 'backbone', 'default'))
+        metadata['num_layers'] = int(getattr(config, 'num_layers', 1))
+        metadata['nhead'] = int(getattr(config, 'nhead', 1))
+        metadata['transformer_k'] = int(getattr(config, 'transformer_k', 16))
+        metadata['noise_level'] = float(getattr(config, 'noise_level', 0.0))
+        metadata['prediction_mode'] = str(getattr(config, 'prediction_mode', 'one_step'))
     return _complete_metadata(metadata)
 
 
@@ -427,6 +447,16 @@ def train_model_on_all_data(config, battery_dict, battery_list, stop_flag=None,
             f'[最终模型] 使用配置默认超参 {hp}（最初样式：跳过内层交叉验证）')
 
     check_cancelled(stop_flag)
+
+    if mode in RECURRENT_MODES and str(getattr(config, 'backbone', 'default')).strip().lower() == 'default':
+        # 结构预检：在正式全量重训前校验网络可实例化（同时兼容测试桩 RecordingNet）
+        if len(columns) == 1:
+            Net(hidden_dim=int(getattr(config, 'hidden_dim', 64)),
+                num_layers=int(getattr(config, 'num_layers', 1)), mode=mode)
+        else:
+            Net(hidden_dim=int(getattr(config, 'hidden_dim', 64)),
+                num_layers=int(getattr(config, 'num_layers', 1)), mode=mode,
+                input_size=len(columns))
 
     # ── 定型：用全部有效电池的全部窗口重训 ──
     # 走的是与评估路径**同一个** core.protocol.fit_final（而不是各写一遍），

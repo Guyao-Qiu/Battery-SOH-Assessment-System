@@ -117,6 +117,20 @@ python tools/check_colors.py                           # colour literals only in
 python -m unittest discover -s tests                   # regression tests
 ```
 
+### DeTransformer Alignment Benchmark (CALCE.npy, Zero-Leakage LOO, 5 Seeds)
+
+Under strict zero-target-battery leakage leave-one-out validation (`window_size=64`, `threshold_ratio=0.7`, `epochs=500`, `hidden_dim=16`, `num_layers=3`, `K=16`, `alpha=0.1`), `DeTransformer` achieves the following 5-seed mean ± std across `CS2_35~38`:
+
+| Battery | Rolling RMSE ↓ | Rolling MAE ↓ | Rolling RE (`re` / `re_ref`) ↓ | 1-Step RMSE ↓ | 1-Step MAE ↓ |
+|---|---:|---:|---:|---:|---:|
+| CS2_35 | 0.0402 ± 0.0082 | 0.0301 ± 0.0081 | 0.0528 / 0.0529 | 0.0229 ± 0.0021 | 0.0145 ± 0.0014 |
+| CS2_36 | 0.0609 ± 0.0111 | 0.0474 ± 0.0060 | 0.3557 / 0.0703 | 0.0199 ± 0.0018 | 0.0135 ± 0.0013 |
+| CS2_37 | 0.1188 ± 0.0336 | 0.0854 ± 0.0263 | 0.1291 / 0.1293 | 0.0164 ± 0.0007 | 0.0106 ± 0.0007 |
+| CS2_38 | 0.1367 ± 0.0438 | 0.0946 ± 0.0327 | 0.1360 / 0.1512 | 0.0182 ± 0.0014 | 0.0110 ± 0.0007 |
+| **Macro Mean** | **0.0892 ± 0.0186** | **0.0644 ± 0.0153** | **0.1684 / 0.1009** | **0.0194 ± 0.0014** | **0.0124 ± 0.0010** |
+
+![Four-Cell Prediction Chart](prediction_chart.png)
+
 ## Quick Start
 
 ### Requirements
@@ -221,5 +235,6 @@ The project code is released under the [MIT License](LICENSE). The CALCE dataset
 
 ## References
 
+- Chen, D., Hong, W., & Zhou, X. (2022). “Transformer network for remaining useful life prediction of lithium-ion batteries.” *IEEE Access*, 10, 19621–19628. Reference implementation: [XiuzeZhou/RUL](https://github.com/XiuzeZhou/RUL) ([CALCE baselines](https://github.com/XiuzeZhou/CALCE); verified that neither repository includes a `LICENSE` file—only the architectural alignment is re-implemented here for research/educational reproducibility with full author attribution retained).
 - Tian, J., et al. (2021). “Deep learning framework for lithium-ion battery state of health estimation.” *Energy*, 234, 121274.
 - Lin, M., et al. (2022). “State of health estimation of lithium-ion batteries based on the CC-CV charging curve and LSTM.” *Energy Reports*, 8, 500–510.

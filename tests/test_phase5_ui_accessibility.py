@@ -37,15 +37,22 @@ class Phase5RuntimeAccessibilityTests(unittest.TestCase):
             self.window.save_chart_btn,
         }
         visited = set()
-        self.window.import_btn.setFocus(Qt.FocusReason.TabFocusReason)
-        self.app.processEvents()
-
-        for _ in range(100):
-            focused = self.app.focusWidget()
-            if focused is not None:
-                visited.add(focused)
-            self.window.focusNextChild()
+        page_starters = (
+            ("data", self.window.import_btn),
+            ("params", self.window.rated_capacity_spin),
+            ("result", self.window.save_chart_btn),
+        )
+        for page_key, starter in page_starters:
+            self.window._show_sidebar_page(page_key)
             self.app.processEvents()
+            starter.setFocus(Qt.FocusReason.TabFocusReason)
+            self.app.processEvents()
+            for _ in range(100):
+                focused = self.app.focusWidget()
+                if focused is not None:
+                    visited.add(focused)
+                self.window.focusNextChild()
+                self.app.processEvents()
 
         self.assertTrue(targets.issubset(visited),
                         f"焦点链遗漏：{targets - visited}")

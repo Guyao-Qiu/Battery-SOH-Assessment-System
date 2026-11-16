@@ -46,3 +46,8 @@ test.py
 .claude/
 .workbuddy-ai/
 .codex_tmp_fund_analysis/
+.agents/
+AGENTS.md
+PROJECT_MEMORY.md
+skills-lock.json
+.zcodeignore

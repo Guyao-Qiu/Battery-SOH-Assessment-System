@@ -127,6 +127,20 @@ python -m unittest discover -s tests                   # 回归测试
 | CS2_37 | `dacc6cf5cd04e147afac28051917564ab204bce48810919a896e8e85cfb4e5ee` | `c123db2c3db2664e01b2563a419b1e041426867bfbbac84ad1097b0ca1367960` |
 | CS2_38 | `39ed8e425eb5155835d08e3aadaf588ef4321f57f2d7e5eabb19e1e41f956760` | `8c91320c5a75e1760f5a6d66d631e67615d43cf1cad0a80ddb18d5e24a8fc423` |
 
+### DeTransformer 对齐基准（CALCE.npy，零目标电池泄漏，5 种子）
+
+在严格零目标电池泄漏的留一交叉验证下（仅用其余 3 节电池训练，`window_size=64`、`threshold_ratio=0.7`、`epochs=500`、`hidden_dim=16`、`num_layers=3`、`K=16`、`alpha=0.1`），新增 `DeTransformer` 的自回归滚动预测（`rolling`）与单步预测（`one_step`）结果如下：
+
+| 电池 | 滚动 RMSE ↓ | 滚动 MAE ↓ | 滚动 RE (`re` / `re_ref`) ↓ | 单步 RMSE ↓ | 单步 MAE ↓ |
+|---|---:|---:|---:|---:|---:|
+| CS2_35 | 0.0402 ± 0.0082 | 0.0301 ± 0.0081 | 0.0528 / 0.0529 | 0.0229 ± 0.0021 | 0.0145 ± 0.0014 |
+| CS2_36 | 0.0609 ± 0.0111 | 0.0474 ± 0.0060 | 0.3557 / 0.0703 | 0.0199 ± 0.0018 | 0.0135 ± 0.0013 |
+| CS2_37 | 0.1188 ± 0.0336 | 0.0854 ± 0.0263 | 0.1291 / 0.1293 | 0.0164 ± 0.0007 | 0.0106 ± 0.0007 |
+| CS2_38 | 0.1367 ± 0.0438 | 0.0946 ± 0.0327 | 0.1360 / 0.1512 | 0.0182 ± 0.0014 | 0.0110 ± 0.0007 |
+| **宏平均** | **0.0892 ± 0.0186** | **0.0644 ± 0.0153** | **0.1684 / 0.1009** | **0.0194 ± 0.0014** | **0.0124 ± 0.0010** |
+
+![四电池真实推理对比图](prediction_chart.png)
+
 ## 功能特性
 
 - **多模型支持**：RNN / GRU / LSTM（PyTorch 深度学习）+ XGBoost / Random Forest（scikit-learn 集成学习）
@@ -297,5 +311,6 @@ capacity = Σ(current × Δt / 3600)
 
 ## 参考资料
 
+- Chen, D., Hong, W., & Zhou, X. (2022). "Transformer network for remaining useful life prediction of lithium-ion batteries." *IEEE Access*, 10, 19621-19628. 参考开源实现：[XiuzeZhou/RUL](https://github.com/XiuzeZhou/RUL)（[CALCE 基线实现](https://github.com/XiuzeZhou/CALCE)；经核查，原仓库未附带 `LICENSE` 许可证文件，本研究/工程对齐实现以科研复现目的引用其论文与仓库地址并保留原作者署名声明，禁止用于未授权的商业再分发）。
 - Tian, J., et al. (2021). "Deep learning framework for lithium-ion battery state of health estimation." *Energy*, 234, 121274.
 - Lin, M., et al. (2022). "State of health estimation of lithium-ion batteries based on the CC-CV charging curve and LSTM." *Energy Reports*, 8, 500-510.

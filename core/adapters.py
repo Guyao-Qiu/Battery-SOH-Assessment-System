@@ -382,8 +382,56 @@ def _build_battery_dataframe(cycle_indices, discharge_capacities, health_indicat
 
 # ─── 1. CALCE 适配器 ──────────────────────────────────────────────
 
+def _load_calce_npy(filepath, log_callback=None):
+    """读取预提取的 CALCE .npy 字典（对齐 XiuzeZhou/RUL CALCE.npy 格式）。"""
+    raw = np.load(filepath, allow_pickle=True)
+    payload = raw.item() if isinstance(raw, np.ndarray) and raw.ndim == 0 else raw
+    if not isinstance(payload, dict):
+        raise ValueError('CALCE .npy 文件必须包含以电池名为键的字典对象')
+
+    battery_dict = {}
+    battery_list = []
+    for name, frame in payload.items():
+        df = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame(frame)
+        if 'capacity' not in df.columns:
+            continue
+        cap = pd.to_numeric(df['capacity'], errors='coerce')
+        valid = np.isfinite(cap.to_numpy(dtype=np.float64))
+        df = df.loc[valid].reset_index(drop=True)
+        if len(df) == 0:
+            continue
+        if 'cycle' not in df.columns:
+            df['cycle'] = np.arange(1, len(df) + 1, dtype=np.float64)
+        if 'dq_v' not in df.columns:
+            df['dq_v'] = df['SoH'] if 'SoH' in df.columns else df['capacity']
+        if 'SoH' not in df.columns:
+            df['SoH'] = df['dq_v']
+        for col in ('resistance', 'CCCT', 'CVCT'):
+            if col not in df.columns:
+                df[col] = np.nan
+        df.attrs['outlier_audit'] = {
+            'mode': 'pre_extracted_npy',
+            'enabled': False,
+            'protect_knees': True,
+            'input_count': int(len(df)),
+            'kept_count': int(len(df)),
+            'removed_count': 0,
+            'marked_count': 0,
+            'mask': [True] * len(df),
+            'marked_indices': [],
+            'removed_indices': [],
+            'protected_indices': [],
+            'reasons': {},
+        }
+        battery_dict[str(name)] = df
+        battery_list.append(str(name))
+        if log_callback:
+            log_callback(f'从 {os.path.basename(filepath)} 加载电池 {name}（{len(df)} 个循环）')
+    return battery_dict, battery_list
+
+
 class CALCEAdapter(BatteryDataAdapter):
-    """CALCE 数据集适配器 — xlsx/csv 格式，工步由用户配置"""
+    """CALCE 数据集适配器 — xlsx/csv 格式（亦兼容预提取 CALCE.npy），工步由用户配置"""
 
     @classmethod
     def name(cls):
@@ -415,6 +463,21 @@ class CALCEAdapter(BatteryDataAdapter):
             if stop_flag is not None and stop_flag():
                 break
 
+            if os.path.isfile(path) and path.lower().endswith('.npy'):
+                try:
+                    npy_dict, npy_list = _load_calce_npy(path, log_callback=log_callback)
+                    for npy_name in npy_list:
+                        if npy_name in battery_dict:
+                            if log_callback:
+                                log_callback(f'跳过数据集 {npy_name}：电池名称重复')
+                            continue
+                        battery_dict[npy_name] = npy_dict[npy_name]
+                        battery_list.append(npy_name)
+                except Exception as exc:
+                    if log_callback:
+                        log_callback(f'跳过 {path}，原因：{exc}')
+                continue
+
             if os.path.isfile(path):
                 name = os.path.splitext(os.path.basename(path))[0]
                 file_list = [path]
@@ -426,6 +489,20 @@ class CALCEAdapter(BatteryDataAdapter):
                 # 文件系统返回顺序不保证稳定；先排序，再按日期排序，
                 # 保证同一目录在不同机器上得到一致的读取顺序。
                 file_list = sorted(file_list)
+                if not file_list:
+                    npy_candidates = sorted(glob.glob(os.path.join(path, '*.npy')))
+                    for npy_path in npy_candidates:
+                        try:
+                            npy_dict, npy_list = _load_calce_npy(
+                                npy_path, log_callback=log_callback)
+                            for npy_name in npy_list:
+                                if npy_name not in battery_dict:
+                                    battery_dict[npy_name] = npy_dict[npy_name]
+                                    battery_list.append(npy_name)
+                        except Exception as exc:
+                            if log_callback:
+                                log_callback(f'跳过 {npy_path}，原因：{exc}')
+                    continue
             else:
                 continue
 

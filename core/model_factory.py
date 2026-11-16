@@ -20,7 +20,7 @@ import numpy as np
 # 测试与调用方也以 ``core.model_factory.RandomForestRegressor`` 为替换点。
 from sklearn.ensemble import RandomForestRegressor as RandomForestRegressor
 
-from core.batching import make_tensor_loader, train_recurrent_epoch
+from core.batching import DEFAULT_BATCH_SIZE, make_tensor_loader
 from core.cancellation import check_cancelled
 
 RECURRENT_MODES = ('RNN', 'GRU', 'LSTM')
@@ -186,119 +186,100 @@ def make_fit_fn(config, *, stop_flag=None, log_callback=None, name='',
         if net_class is None:
             from models.rnn_model import Net as net_class  # noqa: N813
 
-        def fit_rnn(x, y, hp, test_x=None, test_y=None):
-            """训练循环模型；提供 ``test_x`` / ``test_y`` 时按旧项目方式挑最优。
+        backbone = str(getattr(config, 'backbone', 'default')).strip().lower()
+        use_transformer = backbone in ('transformer', 'detransformer')
+        alpha = float(getattr(config, 'alpha', 0.1))
 
-            不传测试集时：固定轮数全批量训练（AdamW），跑完直接返回模型——这是
-            最终模型 / 部署路径的行为（与 8 月之前一致）。
-            传测试集时（评估路径）：每 10 轮在测试序列上算一步预测 RMSE，
-            记录最优轮次的模型状态，结束时装载最优状态返回（旧项目早停口径）。
+        def _build_dl_model(window_size, features):
+            hidden_dim = int(getattr(config, 'hidden_dim', 64))
+            num_layers = max(1, int(getattr(config, 'num_layers', 1)))
+            if use_transformer:
+                from models.rnn_model import DeTransformer
+                return DeTransformer(
+                    feature_size=int(window_size),
+                    hidden_dim=hidden_dim,
+                    feature_num=max(1, int(getattr(config, 'transformer_k', 16))),
+                    num_layers=num_layers,
+                    nhead=max(1, int(getattr(config, 'nhead', 1))),
+                    dropout=float(getattr(config, 'dropout', 0.0)),
+                    noise_level=float(getattr(config, 'noise_level', 0.0)),
+                    input_size=features,
+                )
+            # 只在多特征时传 input_size，保持与测试桩 RecordingNet / BatchGuardNet 三参签名兼容
+            if features == 1:
+                return net_class(
+                    hidden_dim=hidden_dim, num_layers=num_layers, mode=mode)
+            return net_class(
+                hidden_dim=hidden_dim, num_layers=num_layers, mode=mode,
+                input_size=features)
+
+        def fit_rnn(x, y, hp, test_x=None, test_y=None):
+            """训练深度学习模型（对齐 XiuzeZhou/RUL 协议，且严格无测试集泄漏）。
+
+            使用 Adam 优化器与分片全批量梯度累积（每个前向/反向分片 ``<= DEFAULT_BATCH_SIZE``）：
+            数学梯度与参考实现的全批量更新等价，同时严格限制峰值张量显存/内存。
+            ``test_x`` / ``test_y`` 参数仅为兼容保留，不参与早停或轮次筛选。
             """
+            del test_x, test_y  # 红线：绝不使用测试电池参与模型/轮次选择
             resolved = resolve_inference_device(device)
             setup_seed(seed)
             scaled_x, scaled_y = _scale(x, y)
             features = scaled_x.shape[2]
-            hidden_dim = int(getattr(config, 'hidden_dim', 64))
-            # 只在多特征时才传 input_size，保持旧调用签名可用
-            if features == 1:
-                model = net_class(hidden_dim=hidden_dim, num_layers=1, mode=mode)
-            else:
-                model = net_class(
-                    hidden_dim=hidden_dim, num_layers=1, mode=mode,
-                    input_size=features)
-            model = model.to(resolved)
+            window_size = scaled_x.shape[1]
+            model = _build_dl_model(window_size, features).to(resolved)
+
             criterion = nn.MSELoss()
-            select_best = test_x is not None and test_y is not None
-            if select_best:
-                # 旧项目：Adam(lr=0.001)，全批量、不打乱，每 10 轮用测试序列选优
-                optimizer = torch.optim.Adam(
-                    model.parameters(),
-                    lr=float(getattr(config, 'rnn_lr', 0.001)))
-                full_x = torch.from_numpy(scaled_x).to(resolved)
-                full_y = torch.from_numpy(scaled_y.reshape(-1, 1)).to(resolved)
-                scaled_test_x, _ = _scale(test_x, test_y)
-                test_tensor = torch.from_numpy(scaled_test_x).to(resolved)
-                patience = max(1, int(getattr(config, 'patience', 20)))
-            else:
-                optimizer = torch.optim.AdamW(
-                    model.parameters(),
-                    lr=float(getattr(config, 'rnn_lr', 0.001)),
-                    weight_decay=1e-4,
-                )
-                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                    optimizer, factor=0.5,
-                    patience=max(3, int(getattr(config, 'patience', 20)) // 3))
-                loader = make_tensor_loader(
-                    scaled_x, scaled_y.reshape(-1, 1),
-                    shuffle=True,
-                    seed=seed,
-                )
+            optimizer = torch.optim.Adam(
+                model.parameters(),
+                lr=float(getattr(config, 'rnn_lr', 0.001)),
+                weight_decay=float(getattr(config, 'weight_decay', 0.0)),
+            )
+            loader = make_tensor_loader(
+                scaled_x,
+                scaled_y.reshape(-1, 1),
+                batch_size=DEFAULT_BATCH_SIZE,
+                shuffle=False,
+                seed=seed,
+            )
             epochs = max(1, int(hp.get('epochs', 1)))
+            total_samples = max(1, len(scaled_x))
             started_at = time.monotonic()
-            best_state = None
-            best_rmse = float('inf')
-            best_epoch = 0
-            counter = 0
+
             for epoch in range(epochs):
                 check_cancelled(stop_flag)
-                if select_best:
-                    model.train()
-                    optimizer.zero_grad()
-                    output = model(full_x).reshape(-1, 1)
-                    loss = criterion(output, full_y)
-                    loss.backward()
-                    optimizer.step()
-                    loss_value = float(loss.item())
-                else:
-                    loss_value = train_recurrent_epoch(
-                        model, loader, optimizer, criterion, resolved,
-                        stop_flag=stop_flag)
-                    scheduler.step(loss_value)
+                model.train()
+                optimizer.zero_grad()
+                epoch_loss = 0.0
+                for features_batch, targets_batch in loader:
+                    check_cancelled(stop_flag)
+                    features_batch = features_batch.to(resolved)
+                    targets_batch = targets_batch.to(resolved).reshape(-1, 1)
+                    if use_transformer:
+                        output, decode, x_rep = model(
+                            features_batch, return_decode=True)
+                        output = output.reshape(-1, 1)
+                        batch_loss = (
+                            criterion(output, targets_batch)
+                            + alpha * criterion(decode, x_rep)
+                        )
+                    else:
+                        output = model(features_batch).reshape(-1, 1)
+                        batch_loss = criterion(output, targets_batch)
+                    weight = len(features_batch) / total_samples
+                    (batch_loss * weight).backward()
+                    epoch_loss += float(batch_loss.item()) * weight
+                optimizer.step()
+
                 if progress_callback:
                     progress_callback(make_progress_event(
                         'rnn_epoch', started_at=started_at, battery=name,
                         seed=seed, epoch=epoch + 1, current=epoch + 1,
                         total=epochs))
-                if (epoch + 1) % 10 == 0:
-                    if select_best:
-                        model.eval()
-                        with torch.no_grad():
-                            prediction = model(test_tensor)
-                        scaled_prediction = np.asarray(
-                            prediction.detach().cpu().numpy()).reshape(-1)
-                        prediction_ah = scaled_prediction * rated
-                        truth_ah = np.asarray(test_y, dtype=np.float64)
-                        rmse = float(np.sqrt(np.mean(
-                            (prediction_ah - truth_ah) ** 2)))
-                        if rmse < best_rmse:
-                            best_rmse = rmse
-                            best_epoch = epoch + 1
-                            best_state = {
-                                key: value.detach().cpu().clone()
-                                for key, value in model.state_dict().items()
-                            }
-                            counter = 0
-                        else:
-                            counter += 1
-                        if log_callback:
-                            log_callback(
-                                f'[{name}] 第{epoch + 1}/{epochs}轮 '
-                                f'损失={loss_value:.4f} rmse={rmse:.4f}')
-                        if counter >= patience:
-                            if log_callback:
-                                log_callback(
-                                    f'[{name}] 第{epoch + 1}轮早停')
-                            break
-                    elif log_callback:
-                        log_callback(
-                            f'[{name}] 内层定型 第{epoch + 1}/{epochs}轮 '
-                            f'损失={loss_value:.4f}')
-            if select_best and best_state is not None:
-                model.load_state_dict(best_state)
-                if log_callback:
+                if log_callback and ((epoch + 1) % 10 == 0 or epoch + 1 == epochs):
                     log_callback(
-                        f'[{name}] 选定第 {best_epoch} 轮为最优'
-                        f'（测试序列一步 RMSE={best_rmse:.4f}）')
+                        f'[{name}] 第{epoch + 1}/{epochs}轮 '
+                        f'损失={epoch_loss:.6f}')
+
             model.eval()
             return model
 

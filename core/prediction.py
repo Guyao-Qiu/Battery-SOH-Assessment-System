@@ -132,7 +132,14 @@ def predict_capacity_batch(model, metadata, windows, device='cpu'):
     mode = metadata['mode']
     scaled_input = scale_model_input(model_input, metadata)
 
-    if mode in RECURRENT_MODELS:
+    is_torch_model = (
+        mode in RECURRENT_MODELS
+        or str(metadata.get('backbone', 'default')).strip().lower()
+        in ('transformer', 'detransformer')
+        or str(mode).strip().lower() in ('transformer', 'detransformer')
+        or (hasattr(model, 'forward') and not hasattr(model, 'predict'))
+    )
+    if is_torch_model:
         resolved_device = resolve_inference_device(device)
         if not hasattr(model, 'to'):
             raise ValueError('循环模型不支持设备切换')
@@ -144,6 +151,8 @@ def predict_capacity_batch(model, metadata, windows, device='cpu'):
             model_on_device.eval()
         with torch.no_grad():
             scaled_prediction = model_on_device(tensor)
+            if isinstance(scaled_prediction, tuple):
+                scaled_prediction = scaled_prediction[0]
         scaled_prediction = np.asarray(
             scaled_prediction.detach().cpu().numpy(),
             dtype=np.float32).reshape(-1)

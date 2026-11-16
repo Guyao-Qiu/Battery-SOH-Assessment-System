@@ -46,6 +46,27 @@ def relative_error(y_test, y_predict, threshold):
     return relative_error_details(y_test, y_predict, threshold)['value']
 
 
+def relative_error_reference(y_test, y_predict, threshold):
+    """参考仓库（XiuzeZhou/RUL）公式计算的相对误差 RE：``abs(true - pred) / true``，上限 1.0。"""
+    y_test = np.asarray(y_test, dtype=np.float64).reshape(-1)
+    y_predict = np.asarray(y_predict, dtype=np.float64).reshape(-1)
+    if len(y_test) == 0 or len(y_predict) == 0:
+        return None
+    true_re, pred_re = len(y_test), 0
+    for i in range(len(y_test) - 1):
+        if y_test[i] <= threshold >= y_test[i + 1]:
+            true_re = i - 1
+            break
+    for i in range(len(y_predict) - 1):
+        if y_predict[i] <= threshold:
+            pred_re = i - 1
+            break
+    if true_re <= 0:
+        return None
+    val = abs(true_re - pred_re) / true_re
+    return float(val if val <= 1.0 else 1.0)
+
+
 def evaluation(y_test, y_predict):
     """RMSE"""
     return sqrt(mean_squared_error(y_test, y_predict))
@@ -93,13 +114,16 @@ def calc_all_metrics(y_test, y_predict, rated_capacity=None, threshold_ratio=Non
         'pearson': calc_pearson(y_test, y_predict),
     }
     if rated_capacity is not None and threshold_ratio is not None:
+        threshold = rated_capacity * threshold_ratio
         re_result = relative_error_details(
-            y_test, y_predict, rated_capacity * threshold_ratio)
+            y_test, y_predict, threshold)
         metrics['re'] = re_result['value']
         metrics['re_status'] = re_result['status']
         metrics['true_eol_index'] = re_result['true_crossing_index']
         metrics['predicted_eol_index'] = re_result[
             'predicted_crossing_index']
+        metrics['re_ref'] = relative_error_reference(
+            y_test, y_predict, threshold)
     return metrics
 
 

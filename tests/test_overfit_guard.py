@@ -97,10 +97,10 @@ class PersistenceBlendTests(unittest.TestCase):
         # 最初样式：不做 α 收缩标定，也不做滚动起点评估。
         self.assertNotIn("persistence_blend", detail)
         self.assertNotIn("rolling_rows", detail)
-        # 头条指标回到一步预测，且模型输出不再被 α 压回平推。
+        # 头条指标回到一步预测，且模型输出不再被 α 压回平推（真值 7,6,5,4 vs 预测 8.5,7.5,6.5,5.5，差值恒为 1.5）。
         np.testing.assert_allclose(
             detail["one_step_prediction"], [8.5, 7.5, 6.5, 5.5])
-        self.assertEqual(detail["one_step_metrics"]["rmse"], 0.0)
+        self.assertEqual(detail["one_step_metrics"]["rmse"], 1.5)
         self.assertEqual(detail["rul_protocol"], "recursive_future")
 
     def test_final_model_does_not_shrink_to_persistence(self):

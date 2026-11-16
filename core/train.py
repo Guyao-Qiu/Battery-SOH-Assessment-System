@@ -17,7 +17,6 @@ from core.preprocess import (
     feature_fill_values,
     generate_one_step_predictions,
     generate_recursive_predictions,
-    get_train_test,
 )
 from core.prediction import predict_capacity_batch
 from core.evaluate import calc_all_metrics, confidence_interval
@@ -152,31 +151,10 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None,
 
     check_cancelled(stop_flag)
 
-    if mode in ('RNN', 'GRU', 'LSTM') and not multifeature:
-        # ── 循环模型评估：旧项目口径 ──
-        # 训练集 = 目标电池前 window+1 个点 + 其他电池全部窗口；
-        # 训练时每 10 轮在目标电池测试序列上挑最优 epoch。
-        train_x, train_y, train_data, test_data = get_train_test(
-            battery_dict, name, window)
-        if len(train_x) == 0 or len(test_data) == 0:
-            if log_callback:
-                log_callback(f'跳过 {name}，原因：训练/测试实例为空')
-            return None, None, None
-        test_x, test_y = build_instances(
-            np.asarray(test_data, dtype=np.float32), window)
-        if len(test_x) == 0:
-            if log_callback:
-                log_callback(f'跳过 {name}，原因：测试窗口为空')
-            return None, None, None
-        model = fit_fn(
-            train_x, train_y, hp, test_x=test_x, test_y=test_y)
-        check_cancelled(stop_flag)
-    else:
-        # ── 其他模型 / 多特征：用全部训练电池的全部窗口定型（当前行为） ──
-        model = fit_final(
-            battery_dict, train_names, window, fit_fn, hp, rated_capacity,
-            columns=columns if multifeature else None)
-        check_cancelled(stop_flag)
+    model = fit_final(
+        battery_dict, train_names, window, fit_fn, hp, rated_capacity,
+        columns=columns if multifeature else None)
+    check_cancelled(stop_flag)
 
     metadata = _model_metadata(
         config, window, rated_capacity, scaler, feature_scaler, columns,
@@ -192,19 +170,34 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None,
     one_step = protocols['one_step']
     recursive = protocols['recursive']
 
-    # ── 头条指标 = 一步预测（最初样式） ──
-    metrics = dict(one_step['metrics'])
-    metrics['re'] = protocols['rul_re']
-    metrics['re_status'] = recursive['metrics'].get('re_status')
+    pred_mode_raw = str(getattr(config, 'prediction_mode', 'one_step')).strip().lower()
+    is_rolling = pred_mode_raw in ('rolling', 'recursive')
+    canonical_pred_mode = 'rolling' if is_rolling else 'one_step'
+    mode_label = (
+        '自回归滚动预测（起点后仅用模型自身输出）'
+        if is_rolling else '单步预测（基于真实历史窗口）'
+    )
+    if log_callback:
+        log_callback(f'[{name}] 预测模式：{mode_label}')
 
     train_data = list(np.asarray(target_frames)[:window, 0]) if multifeature \
         else list(np.asarray(target_frames)[:window])
-    pred_list = train_data + list(one_step['prediction'])
+    if is_rolling:
+        metrics = dict(recursive['metrics'])
+        pred_list = train_data + list(recursive['prediction'])
+    else:
+        metrics = dict(one_step['metrics'])
+        metrics['re'] = protocols['rul_re']
+        metrics['re_status'] = recursive['metrics'].get('re_status')
+        pred_list = train_data + list(one_step['prediction'])
 
     detail = {
         'battery': name,
         'cycles': int(len(target_frames)),
         'model': mode,
+        'backbone': str(getattr(config, 'backbone', 'default')),
+        'prediction_mode': canonical_pred_mode,
+        'prediction_mode_label': mode_label,
         'training_batteries': tuple(train_names),
         'protocol': 'strict_zero_shot',
         'rul_protocol': 'recursive_future',
@@ -292,6 +285,12 @@ def _model_metadata(config, window, rated_capacity, scaler, feature_scaler,
     if config.mode in ('RNN', 'GRU', 'LSTM'):
         metadata['hidden_dim'] = int(getattr(config, 'hidden_dim', 64))
         metadata['input_size'] = int(len(columns))
+        metadata['backbone'] = str(getattr(config, 'backbone', 'default'))
+        metadata['num_layers'] = int(getattr(config, 'num_layers', 1))
+        metadata['nhead'] = int(getattr(config, 'nhead', 1))
+        metadata['transformer_k'] = int(getattr(config, 'transformer_k', 16))
+        metadata['noise_level'] = float(getattr(config, 'noise_level', 0.0))
+        metadata['prediction_mode'] = str(getattr(config, 'prediction_mode', 'one_step'))
     return metadata
 
 
@@ -302,11 +301,21 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None,
     mode = config.mode
     base_seed = config.seed
     n_seeds = max(1, getattr(config, 'n_seeds', 1))
+    backbone = str(getattr(config, 'backbone', 'default')).strip().lower()
+    use_transformer = backbone in ('transformer', 'detransformer')
+    pred_mode_raw = str(getattr(config, 'prediction_mode', 'one_step')).strip().lower()
+    is_rolling = pred_mode_raw in ('rolling', 'recursive')
+    mode_label = (
+        '自回归滚动预测（起点后仅用模型自身输出）'
+        if is_rolling else '单步预测（基于真实历史窗口）'
+    )
 
     results = {}
     progress_started_at = time.monotonic()
     seeds = [base_seed + i for i in range(n_seeds)]
 
+    if log_callback:
+        log_callback(f'预测模式：{mode_label}')
     if n_seeds > 1 and log_callback:
         log_callback(
             f'多种子评估：共 {n_seeds} 个种子 {seeds}，'
@@ -355,7 +364,7 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None,
             continue
 
         ci_info = {}
-        for key in ('rmse', 'mae', 'r2', 'pearson', 're'):
+        for key in ('rmse', 'mae', 'r2', 'pearson', 're', 're_ref'):
             values = [
                 float(item[key]) for item in all_metrics
                 if item.get(key) is not None and np.isfinite(item[key])
@@ -369,8 +378,8 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None,
             }
 
         mean_metrics = {key: ci_info[key]['mean'] for key in ci_info}
-        if mode in ('RNN', 'GRU', 'LSTM'):
-            # 旧项目口径：多种子取 RMSE 最优种子的预测画图（不平均）
+        if mode in ('RNN', 'GRU', 'LSTM') and not use_transformer:
+            # 旧项目口径：循环模型多种子取 RMSE 最优种子的预测画图（ci_info/mean_metrics 仍保留全量均值±标准差）
             best_idx = int(np.argmin([
                 float(m.get('rmse') or np.inf) for m in all_metrics]))
             best_prediction = all_predictions[best_idx]
@@ -386,7 +395,8 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None,
             best_run_detail = None
         detail = _aggregate_detail(
             name, mode, battery_dict, ci_info, mean_metrics, run_details,
-            best_run_detail=best_run_detail)
+            best_run_detail=best_run_detail,
+            use_transformer=use_transformer)
 
         selected_metric = getattr(config, 'metric', 'rmse')
         selected_score = best_metrics.get(
@@ -408,14 +418,15 @@ def train(config, battery_dict, battery_list, stop_flag=None, log_callback=None,
 
 
 def _aggregate_detail(name, mode, battery_dict, ci_info, mean_metrics,
-                      run_details, best_run_detail=None):
+                      run_details, best_run_detail=None,
+                      use_transformer=False):
     """把每个种子的 detail 汇总成电池级 detail。"""
     def mean_protocol_metrics(field):
         protocol_metrics = [item[field] for item in run_details if field in item]
         if not protocol_metrics:
             return {}
         result = {}
-        for key in ('rmse', 'mae', 'r2', 'pearson', 're'):
+        for key in ('rmse', 'mae', 'r2', 'pearson', 're', 're_ref'):
             values = [
                 float(item[key]) for item in protocol_metrics
                 if item.get(key) is not None and np.isfinite(item[key])
@@ -438,23 +449,32 @@ def _aggregate_detail(name, mode, battery_dict, ci_info, mean_metrics,
                        for value in values]), axis=0).tolist()
 
     first = run_details[0] if run_details else {}
+    seed_policy = (
+        'best_seed'
+        if mode in ('RNN', 'GRU', 'LSTM') and not use_transformer
+        else 'all_seed_mean'
+    )
 
     detail = {
         'battery': name,
         'cycles': int(len(battery_dict[name]['capacity'])),
         'model': mode,
+        'backbone': first.get('backbone', 'default'),
+        'prediction_mode': first.get('prediction_mode', 'one_step'),
+        'prediction_mode_label': first.get(
+            'prediction_mode_label', '单步预测（基于真实历史窗口）'),
         'rmse': mean_metrics.get('rmse'),
         'mae': mean_metrics.get('mae'),
         'r2': mean_metrics.get('r2'),
         'pearson': mean_metrics.get('pearson'),
         're': mean_metrics.get('re'),
+        're_ref': mean_metrics.get('re_ref'),
         're_status': mean_protocol_metrics('recursive_metrics').get(
             're_status', 'unavailable'),
         'n_seeds': len(run_details),
         'ci': ci_info,
         'ci_statistical_object': '同一留一折内的随机种子波动',
-        'seed_policy': ('best_seed' if mode in ('RNN', 'GRU', 'LSTM')
-                        else 'all_seed_mean'),
+        'seed_policy': seed_policy,
         'protocol': 'strict_zero_shot',
         'rul_protocol': 'recursive_future',
         'one_step_prediction': (

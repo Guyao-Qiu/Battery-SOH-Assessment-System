@@ -44,6 +44,35 @@ def normalize_metric_name(value):
     return aliases[key]
 
 
+def normalize_backbone(value):
+    key = str(value).strip().lower()
+    aliases = {
+        'default': 'default',
+        'rnn': 'default',
+        'transformer': 'Transformer',
+        'detransformer': 'DeTransformer',
+    }
+    if key not in aliases:
+        raise ValueError(f'不支持的网络主干: {value}（可选 default / Transformer / DeTransformer）')
+    return aliases[key]
+
+
+def normalize_prediction_mode(value):
+    key = str(value).strip().lower()
+    aliases = {
+        'one_step': 'one_step',
+        'onestep': 'one_step',
+        '单步预测': 'one_step',
+        'rolling': 'rolling',
+        'autoregressive': 'rolling',
+        '自回归滚动预测': 'rolling',
+        'recursive': 'recursive',
+    }
+    if key not in aliases:
+        raise ValueError(f'不支持的预测模式: {value}（可选 one_step / rolling / recursive）')
+    return aliases[key]
+
+
 # ── 配置里只存"规范键"，界面文本只在界面层转换（改进方案 A11） ──────
 
 DEVICE_UI = {'cpu': 'CPU', 'cuda': 'GPU (CUDA)'}
@@ -192,6 +221,15 @@ class TrainConfig:
     # （滑动因果窗口剔除）/ 'off'（不检测）。
     # 取值集合与 core.preprocess.OUTLIER_MODES 保持一致。
     outlier_mode: str = 'chunked'
+    # 深度学习参考对齐参数（XiuzeZhou/RUL Transformer & RNN/LSTM/GRU）
+    backbone: str = 'default'
+    num_layers: int = 1
+    nhead: int = 1
+    transformer_k: int = 16
+    alpha: float = 0.1
+    noise_level: float = 0.0
+    weight_decay: float = 0.0
+    prediction_mode: str = 'one_step'
 
     def __post_init__(self):
         self.mode = normalize_model_name(self.mode)
@@ -200,6 +238,14 @@ class TrainConfig:
         # A11：旧配置把界面文本（'GPU (CUDA)'）写进 JSON，这里必须规范化
         self.device = normalize_device(self.device)
         self.feature_columns = normalize_feature_list(self.feature_columns)
+        self.backbone = normalize_backbone(self.backbone)
+        self.prediction_mode = normalize_prediction_mode(self.prediction_mode)
+        self.num_layers = max(1, int(self.num_layers))
+        self.nhead = max(1, int(self.nhead))
+        self.transformer_k = max(1, int(self.transformer_k))
+        self.alpha = float(self.alpha)
+        self.noise_level = float(self.noise_level)
+        self.weight_decay = float(self.weight_decay)
         # A12：去抖必须是 >=1 的整数；非法值回落到兼容默认 1
         try:
             self.eol_debounce = max(1, int(self.eol_debounce))

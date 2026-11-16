@@ -313,6 +313,24 @@ def drop_outlier(array, count, bins):
     return filter_capacity_outliers(values, bins=bins).indices
 
 
+def drop_outlier_reference(array, count=None, bins=40):
+    """对齐参考仓库（XiuzeZhou/RUL）的 ``drop_outlier`` 分块 2σ 筛选逻辑。"""
+    values = np.asarray(array, dtype=np.float64).reshape(-1)
+    limit = len(values) if count is None else min(int(count), len(values))
+    if limit <= 1 or bins <= 0:
+        return np.empty(0, dtype=int)
+    index = []
+    range_ = np.arange(1, limit, bins)
+    for start in range_[:-1]:
+        array_lim = values[start:start + bins]
+        sigma = np.std(array_lim)
+        mean = np.mean(array_lim)
+        th_max, th_min = mean + sigma * 2.0, mean - sigma * 2.0
+        idx = np.where((array_lim < th_max) & (array_lim > th_min))[0] + start
+        index.extend(idx.tolist())
+    return np.asarray(index, dtype=int)
+
+
 def build_instances(sequence, window_size):
     x, y = [], []
     for i in range(len(sequence) - window_size):

@@ -400,6 +400,25 @@ def _validate_calce_file(
         filepath, max_file_bytes=max_file_bytes, max_sheets=max_sheets)
     if errors:
         return errors
+    if os.path.splitext(filepath)[1].lower() == '.npy':
+        try:
+            raw = np.load(filepath, allow_pickle=True)
+            payload = raw.item() if isinstance(raw, np.ndarray) and raw.ndim == 0 else raw
+        except Exception as exc:
+            return [f'CALCE .npy 文件无法读取：{exc}']
+        if not isinstance(payload, dict) or not payload:
+            return ['CALCE .npy 文件内容为空或格式无效']
+        valid_batteries = 0
+        for cell_name, entry in payload.items():
+            frame = entry if isinstance(entry, pd.DataFrame) else pd.DataFrame(entry)
+            if 'capacity' not in frame.columns:
+                continue
+            cap = pd.to_numeric(frame['capacity'], errors='coerce').to_numpy(dtype=np.float64)
+            finite_cap = cap[np.isfinite(cap)]
+            if len(finite_cap) <= window_size:
+                return [f'{cell_name} 有效循环数 {len(finite_cap)} 必须大于窗口大小 {window_size}']
+            valid_batteries += 1
+        return [] if valid_batteries else ['CALCE .npy 中未找到包含 capacity 列的电池数据']
     try:
         dataframe = _read_data_file(
             filepath, max_rows=max_rows, max_sheets=max_sheets)
@@ -445,7 +464,7 @@ def validate_imported_item(
     if adapter_type not in ('CALCE', 'NASA'):
         return [f'不支持的数据适配器：{adapter_type}']
     if extensions is None:
-        extensions = ('.mat',) if adapter_type == 'NASA' else ('.xlsx', '.csv')
+        extensions = ('.mat',) if adapter_type == 'NASA' else ('.xlsx', '.csv', '.npy')
 
     if os.path.isfile(path):
         file_list = [path]
@@ -483,13 +502,22 @@ def validate_imported_item(
                 filepath, discharge_step, per_file_window, rated_capacity,
                 max_file_bytes, max_rows, max_columns, max_sheets)
             if not file_errors and not enforce_window_per_file:
-                frame = _read_data_file(
-                    filepath, max_rows=max_rows, max_sheets=max_sheets)
-                normalize_column_names(frame)
-                step = pd.to_numeric(frame['Step_Index'], errors='coerce')
-                cycle = pd.to_numeric(frame['Cycle_Index'], errors='coerce')
-                successful_cycle_count += int(
-                    cycle[step == discharge_step].nunique())
+                if extension == '.npy':
+                    raw = np.load(filepath, allow_pickle=True)
+                    payload = raw.item() if isinstance(raw, np.ndarray) and raw.ndim == 0 else raw
+                    if isinstance(payload, dict):
+                        successful_cycle_count += max(
+                            (len(v) for v in payload.values() if hasattr(v, '__len__')),
+                            default=0,
+                        )
+                else:
+                    frame = _read_data_file(
+                        filepath, max_rows=max_rows, max_sheets=max_sheets)
+                    normalize_column_names(frame)
+                    step = pd.to_numeric(frame['Step_Index'], errors='coerce')
+                    cycle = pd.to_numeric(frame['Cycle_Index'], errors='coerce')
+                    successful_cycle_count += int(
+                        cycle[step == discharge_step].nunique())
         if file_errors:
             filename = os.path.basename(filepath)
             if log_callback:
