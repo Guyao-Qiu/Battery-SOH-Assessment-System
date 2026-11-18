@@ -38,18 +38,18 @@ def capacity_of(data_dict, name):
     return np.asarray(entry['capacity'], dtype=np.float64).reshape(-1)
 
 
-def feature_frame(data_dict, name, columns):
+def feature_frame(data_dict, name, columns, fill_values=None):
     """取某块电池的特征帧 ``(T, F)``，容量为第 0 列。
 
-    ``columns`` 里不存在的列会被跳过；容量列始终保留。
+    ``columns`` 里不存在的列会被跳过；容量列始终保留。非容量列按因果前向填充
+    与 ``fill_values`` 兜底，防止缺失的循环级特征触发预测异常。
     """
+    from core.preprocess import fill_feature_frame
+
     entry = data_dict[name]
     if hasattr(entry, 'columns'):
-        available = [c for c in columns if c in entry.columns]
-        if 'capacity' not in available:
-            available = ['capacity'] + available
-        return np.asarray(
-            entry.loc[:, available].astype('float64'), dtype=np.float64)
+        filled = fill_feature_frame(entry, cols=columns, fill_values=fill_values)
+        return np.asarray(filled, dtype=np.float64)
     capacity = np.asarray(entry['capacity'], dtype=np.float64).reshape(-1)
     return capacity.reshape(-1, 1)
 

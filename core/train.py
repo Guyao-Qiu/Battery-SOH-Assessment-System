@@ -15,6 +15,7 @@ from core.preprocess import (
     build_instances,
     build_instances_mf,
     feature_fill_values,
+    fill_feature_frame,
     generate_one_step_predictions,
     generate_recursive_predictions,
 )
@@ -161,8 +162,15 @@ def _train_one_battery(config, battery_dict, name, stop_flag=None,
         multifeature, hp)
 
     # ── 诊断信息：一步预测与从初始窗口起的完全递归预测 ──
+    eval_input = (
+        np.asarray(
+            fill_feature_frame(target_frames, cols=columns, fill_values=fill_values),
+            dtype=np.float64,
+        )
+        if multifeature else target_frames
+    )
     protocols = evaluate_prediction_protocols(
-        np.asarray(target_frames)[:, 0] if multifeature else target_frames,
+        eval_input,
         window,
         lambda windows: predict_capacity_batch(
             model, metadata, windows, device=device),
@@ -252,7 +260,7 @@ def _fit_scalers(config, battery_dict, train_names, window, columns,
     if multifeature and frames:
         combined = pd.concat(frames, ignore_index=True)
         fill_values = feature_fill_values(combined, list(columns))
-        filled = combined.ffill().fillna(fill_values).fillna(0.0)
+        filled = fill_feature_frame(combined, cols=list(columns), fill_values=fill_values)
         feature_scaler = FeatureScaler().fit(filled.to_numpy(dtype=np.float32))
     return scaler, feature_scaler, fill_values
 

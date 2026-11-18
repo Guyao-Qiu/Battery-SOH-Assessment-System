@@ -112,9 +112,20 @@ class ReadmeConsistencyTests(unittest.TestCase):
     def test_benchmark_tables_match_results_json(self):
         results_files = sorted((ROOT / 'benchmark').glob('results_*.json'))
         self.assertTrue(results_files, '缺少 benchmark/results_*.json')
+        nasa_files = sorted(
+            (ROOT / 'benchmark').glob('nasa_*.json'),
+            key=lambda p: p.stat().st_mtime,
+        )
+        nasa_path = nasa_files[-1] if nasa_files else None
+        ablation_files = sorted(
+            (ROOT / 'benchmark').glob('ablation_*.json'),
+            key=lambda p: p.stat().st_mtime,
+        )
+        ablation_path = ablation_files[-1] if ablation_files else None
         for path in results_files:
             self.assertEqual(
-                render_benchmark_table.check_benchmark_tables(path, ROOT),
+                render_benchmark_table.check_benchmark_tables(
+                    path, ROOT, nasa_input=nasa_path, ablation_input=ablation_path),
                 [],
             )
 

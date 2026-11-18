@@ -358,7 +358,26 @@ def build_instances_fast(sequence, window_size):
 #:
 #: 注意 ``dq_v`` 就是适配器里原来叫 ``'SoH'`` 的那一列（电压窗口内放电的容量
 #: 差），它是**健康指标 HI**，不是 SOH（SOH = C / C_rated）。改名以避免混淆。
-FEATURE_COLS = ('capacity', 'dq_v', 'CCCT', 'CVCT', 'resistance')
+FEATURE_COLS = (
+    'capacity', 'dq_v', 'CCCT', 'CVCT', 'resistance',
+    'ica_peak_v', 'ica_peak_h', 'ica_peak_area',
+)
+
+
+def fill_feature_frame(frame, cols=FEATURE_COLS, fill_values=None):
+    """按因果前向填充 + 训练集统计量填充特征帧缺失值，确保 ``capacity`` 排第 0 列。"""
+    selected_cols = [c for c in cols if c in frame.columns]
+    if not selected_cols or 'capacity' not in selected_cols:
+        raise ValueError('多特征滑窗至少需要 capacity 列')
+    if selected_cols[0] != 'capacity':
+        selected_cols = ['capacity'] + [c for c in selected_cols if c != 'capacity']
+
+    selected = frame.loc[:, selected_cols].astype('float32')
+    selected = selected.ffill()
+    if fill_values is not None:
+        selected = selected.fillna(
+            {c: fill_values.get(c, 0.0) for c in selected_cols})
+    return selected.fillna(0.0)
 
 
 def build_instances_mf(frame, window, cols=FEATURE_COLS, fill_values=None):
@@ -367,21 +386,7 @@ def build_instances_mf(frame, window, cols=FEATURE_COLS, fill_values=None):
     缺失值只做**因果前向填充**（只用过去），剩余缺失用训练集统计量
     ``fill_values`` 填充，不会把未来信息泄漏回窗口。
     """
-
-    cols = [c for c in cols if c in frame.columns]
-    if not cols or 'capacity' not in cols:
-        raise ValueError('多特征滑窗至少需要 capacity 列')
-    # 容量永远是第 0 列，y 从它取
-    if cols[0] != 'capacity':
-        cols = ['capacity'] + [c for c in cols if c != 'capacity']
-
-    selected = frame.loc[:, cols].astype('float32')
-    # 先用「仅列」的前向填充（不跨列），再按列用训练集统计量兜底
-    selected = selected.ffill()
-    if fill_values is not None:
-        selected = selected.fillna(
-            {c: fill_values.get(c, 0.0) for c in cols})
-    selected = selected.fillna(0.0)
+    selected = fill_feature_frame(frame, cols=cols, fill_values=fill_values)
     array = selected.to_numpy(dtype=np.float32)
     features = array.shape[1]
     if len(array) <= window:
@@ -466,7 +471,15 @@ def fit_persistence_blend(windows, targets, model_prediction):
 
 def generate_one_step_predictions(sequence, window_size, predict_batch):
     """Predict every next point using the observed history available at that step."""
-    test_x, test_y = build_instances(sequence, window_size)
+    array = np.asarray(sequence, dtype=np.float32)
+    if array.ndim == 2 and array.shape[1] > 1:
+        if len(array) <= window_size:
+            raise ValueError('序列长度不足，无法执行一步预测')
+        view = sliding_window_view(array, (window_size + 1, array.shape[1]))[:, 0]
+        test_x = view[:, :-1, :].copy()
+        test_y = view[:, -1, 0].copy()
+    else:
+        test_x, test_y = build_instances(array.reshape(-1), window_size)
     if len(test_x) == 0:
         raise ValueError('序列长度不足，无法执行一步预测')
     prediction = np.asarray(predict_batch(test_x), dtype=np.float64).reshape(-1)
@@ -477,23 +490,35 @@ def generate_one_step_predictions(sequence, window_size, predict_batch):
 
 def generate_recursive_predictions(sequence, window_size, predict_batch):
     """Forecast the future from one observed window, feeding predictions back in."""
-    sequence = np.asarray(sequence, dtype=np.float64).reshape(-1)
-    if len(sequence) <= window_size:
+    array = np.asarray(sequence, dtype=np.float64)
+    if array.ndim == 1:
+        array = array.reshape(-1, 1)
+    if len(array) <= window_size:
         raise ValueError('序列长度不足，无法执行递归未来预测')
 
-    history = sequence[:window_size].tolist()
+    features = array.shape[1]
+    history = array[:window_size].copy()
+    held = history[-1, 1:].copy() if features > 1 else None
     prediction = []
-    for _ in range(len(sequence) - window_size):
-        window = np.asarray(history[-window_size:], dtype=np.float32).reshape(1, -1)
+    for _ in range(len(array) - window_size):
+        if features == 1:
+            window = history[-window_size:, 0].astype(np.float32).reshape(1, -1)
+        else:
+            window = history[-window_size:].astype(np.float32).reshape(
+                1, window_size, features)
         next_values = np.asarray(
             predict_batch(window), dtype=np.float64).reshape(-1)
         if len(next_values) != 1 or not np.isfinite(next_values[0]):
             raise ValueError('递归预测器必须为单个窗口返回一个有限数值')
         next_value = float(next_values[0])
         prediction.append(next_value)
-        history.append(next_value)
+        row = np.empty(features, dtype=np.float64)
+        row[0] = next_value
+        if features > 1:
+            row[1:] = held
+        history = np.vstack([history, row])
 
-    truth = sequence[window_size:]
+    truth = array[window_size:, 0]
     return truth, np.asarray(prediction, dtype=np.float64)
 
 

@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 from abc import ABC, abstractmethod
 
+from .ica import extract_nasa_charge_ica, extract_tabular_ica_features
 from .preprocess import OUTLIER_MODES, filter_capacity_outliers
 from .validation import normalize_column_names, _read_data_file
 
@@ -252,7 +253,10 @@ def _build_battery_dataframe(cycle_indices, discharge_capacities, health_indicat
                              internal_resistance, CCCT, CVCT,
                              name, log_callback, clean_outliers=None,
                              protect_knees=True, raw_index=None,
-                             outlier_mode='mark'):
+                             outlier_mode='mark',
+                             ica_peak_v=None,
+                             ica_peak_h=None,
+                             ica_peak_area=None):
     """将提取数组组装为 DataFrame；默认保留有限原始容量以避免评估泄漏。
 
     参数:
@@ -292,6 +296,9 @@ def _build_battery_dataframe(cycle_indices, discharge_capacities, health_indicat
     internal_resistance = aligned(internal_resistance)
     CCCT = aligned(CCCT)
     CVCT = aligned(CVCT)
+    ica_v_arr = aligned(() if ica_peak_v is None else ica_peak_v)
+    ica_h_arr = aligned(() if ica_peak_h is None else ica_peak_h)
+    ica_area_arr = aligned(() if ica_peak_area is None else ica_peak_area)
     if raw_index is not None:
         raw_index = aligned(raw_index)
 
@@ -345,6 +352,9 @@ def _build_battery_dataframe(cycle_indices, discharge_capacities, health_indicat
         'resistance': internal_resistance[idx],
         'CCCT': CCCT[idx],
         'CVCT': CVCT[idx],
+        'ica_peak_v': ica_v_arr[idx],
+        'ica_peak_h': ica_h_arr[idx],
+        'ica_peak_area': ica_area_arr[idx],
     }
     # 兼容别名：dq_v 即电压窗口内的放电容量差（健康指标 HI），不是 SOH。
     # 保留 'SoH' 键名，避免旧代码 / 旧 notebook 读取 df['SoH'] 时 KeyError。
@@ -406,7 +416,10 @@ def _load_calce_npy(filepath, log_callback=None):
             df['dq_v'] = df['SoH'] if 'SoH' in df.columns else df['capacity']
         if 'SoH' not in df.columns:
             df['SoH'] = df['dq_v']
-        for col in ('resistance', 'CCCT', 'CVCT'):
+        for col in (
+            'resistance', 'CCCT', 'CVCT',
+            'ica_peak_v', 'ica_peak_h', 'ica_peak_area',
+        ):
             if col not in df.columns:
                 df[col] = np.nan
         df.attrs['outlier_audit'] = {
@@ -540,6 +553,9 @@ class CALCEAdapter(BatteryDataAdapter):
             all_ir = []
             all_ccct = []
             all_cvct = []
+            all_ica_v = []
+            all_ica_h = []
+            all_ica_area = []
 
             for p in path_sorted:
                 if stop_flag is not None and stop_flag():
@@ -553,16 +569,25 @@ class CALCEAdapter(BatteryDataAdapter):
                     df, voltage_upper, voltage_lower,
                     cc_step, cv_step, discharge_step
                 )
+                ica_v, ica_h, ica_area = extract_tabular_ica_features(
+                    df, cc_step, discharge_step
+                )
                 all_cycles.extend(cycles)
                 all_cap.extend(cap)
                 all_soh.extend(soh)
                 all_ir.extend(ir)
                 all_ccct.extend(ccct)
                 all_cvct.extend(cvct)
+                all_ica_v.extend(ica_v)
+                all_ica_h.extend(ica_h)
+                all_ica_area.extend(ica_area)
 
             df_result = _build_battery_dataframe(
                 all_cycles, all_cap, all_soh, all_ir, all_ccct, all_cvct,
-                name, log_callback, outlier_mode=outlier_mode
+                name, log_callback, outlier_mode=outlier_mode,
+                ica_peak_v=all_ica_v,
+                ica_peak_h=all_ica_h,
+                ica_peak_area=all_ica_area,
             )
             if df_result is not None:
                 if name in battery_dict:
@@ -613,37 +638,29 @@ class NASAAdapter(BatteryDataAdapter):
                 'NASA 数据集适配器需要 scipy 库。请在环境中安装：pip install scipy'
             )
 
-        # CC/CV 分界电压：优先使用调用方显式传入的 v_cv；否则若 voltage_upper
-        # 看起来是合理的充电截止电压（>= 3.0 V，例如 NASA 用户填 4.2），就用它；
-        # 否则（例如沿用 CALCE 默认的 3.8 以下窗口电压）退回 4.2 V 默认值。
-        if v_cv is None:
-            if voltage_upper is not None and np.isfinite(voltage_upper) \
-                    and voltage_upper >= 3.0:
-                v_cv = float(voltage_upper)
-            else:
-                v_cv = 4.2
-        else:
-            v_cv = float(v_cv)
+        # CC/CV 分界电压：未显式传入时默认采用 NASA 18650 标准充电截止电压 4.2 V，
+        # 不将用于放电 dq_v 窗口的 voltage_upper（默认 3.8 V）误作充电恒压阈值。
+        v_cv = 4.2 if v_cv is None else float(v_cv)
 
         battery_dict = {}
         battery_list = []
 
+        mat_entries = []
         for path in paths:
             if stop_flag is not None and stop_flag():
                 break
-
             if os.path.isfile(path) and path.lower().endswith('.mat'):
-                name = os.path.splitext(os.path.basename(path))[0]
-                file_list = [path]
+                mat_entries.append((os.path.splitext(os.path.basename(path))[0], path))
             elif os.path.isdir(path):
-                name = os.path.basename(path.rstrip('/\\'))
-                # 排序：glob 的返回顺序依赖文件系统，排序后读取顺序才可复现
-                file_list = sorted(glob.glob(os.path.join(path, '*.mat')))
-            else:
-                continue
+                # 排序：glob 的返回顺序依赖文件系统，逐个 .mat 作为独立电池加载以支持 LOBO
+                for mat_path in sorted(glob.glob(os.path.join(path, '*.mat'))):
+                    mat_entries.append(
+                        (os.path.splitext(os.path.basename(mat_path))[0], mat_path)
+                    )
 
-            if not file_list:
-                continue
+        for name, p in mat_entries:
+            if stop_flag is not None and stop_flag():
+                break
 
             if log_callback:
                 log_callback(f'加载数据集 {name}...')
@@ -655,10 +672,14 @@ class NASAAdapter(BatteryDataAdapter):
             internal_resistance = []
             CCCT = []
             CVCT = []
+            ica_peak_v = []
+            ica_peak_h = []
+            ica_peak_area = []
             pending_ccct = np.nan
             pending_cvct = np.nan
+            pending_ica = (np.nan, np.nan, np.nan)
 
-            for p in file_list:
+            for p in (p,):
                 if stop_flag is not None and stop_flag():
                     break
                 try:
@@ -742,11 +763,14 @@ class NASAAdapter(BatteryDataAdapter):
                                     dt = np.diff(t)
                                     instant_cap = dt * c_arr[1:] / 3600
                                     cum_cap = np.cumsum(instant_cap)
-                                    dec_upper = np.abs(v[1:] - voltage_upper)
-                                    if len(dec_upper) > 0:
-                                        start = cum_cap[np.argmin(dec_upper)]
-                                        dec_lower = np.abs(v[1:] - voltage_lower)
-                                        end = cum_cap[np.argmin(dec_lower)] if len(dec_lower) > 0 else start
+                                    v_step = v[1:]
+                                    if len(v_step) > 0 and np.any(np.isfinite(v_step)):
+                                        # 仅在到达最低电压前的有效放电段内查找，避免静置回弹误匹配
+                                        active_end = int(np.nanargmin(v_step)) + 1
+                                        v_active = v_step[:active_end]
+                                        c_active = cum_cap[:active_end]
+                                        start = c_active[int(np.nanargmin(np.abs(v_active - voltage_upper)))]
+                                        end = c_active[int(np.nanargmin(np.abs(v_active - voltage_lower)))]
                                         health_indicator.append(-1 * (end - start))
                                     else:
                                         health_indicator.append(np.nan)
@@ -756,8 +780,12 @@ class NASAAdapter(BatteryDataAdapter):
                                 internal_resistance.append(np.nan)
                                 CCCT.append(pending_ccct)
                                 CVCT.append(pending_cvct)
+                                ica_peak_v.append(pending_ica[0])
+                                ica_peak_h.append(pending_ica[1])
+                                ica_peak_area.append(pending_ica[2])
                                 pending_ccct = np.nan
                                 pending_cvct = np.nan
+                                pending_ica = (np.nan, np.nan, np.nan)
 
                         elif cycle_type.lower() == 'charge':
                             # 从充电阶段提取 CCCT / CVCT：按电压是否到达充电截止
@@ -767,6 +795,8 @@ class NASAAdapter(BatteryDataAdapter):
                                 data.get('Voltage_measured', [])).reshape(-1)
                             pending_ccct, pending_cvct = split_cc_cv(
                                 t, v, v_cv=v_cv)
+                            pending_ica = extract_nasa_charge_ica(
+                                data, v_cv=v_cv)
                     except (IndexError, KeyError, ValueError):
                         continue
 
@@ -774,7 +804,10 @@ class NASAAdapter(BatteryDataAdapter):
                 discharge_cycles, discharge_capacities, health_indicator,
                 internal_resistance, CCCT, CVCT,
                 name, log_callback, raw_index=discharge_raw_index,
-                outlier_mode=outlier_mode
+                outlier_mode=outlier_mode,
+                ica_peak_v=ica_peak_v,
+                ica_peak_h=ica_peak_h,
+                ica_peak_area=ica_peak_area,
             )
             if df_result is not None:
                 if name in battery_dict:

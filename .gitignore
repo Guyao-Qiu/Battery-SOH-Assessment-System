@@ -21,6 +21,7 @@ env/
 
 # Outputs (runtime generated)
 outputs/
+dataset/NASA/
 *.log
 .coverage
 .coverage.*

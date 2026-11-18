@@ -124,6 +124,9 @@ FEATURE_OPTIONS = {
     'CCCT': '恒流充电时长 CCCT',
     'CVCT': '恒压充电时长 CVCT',
     'resistance': '内阻 resistance',
+    'ica_peak_v': 'ICA 主峰位置 ica_peak_v',
+    'ica_peak_h': 'ICA 主峰高度 ica_peak_h',
+    'ica_peak_area': 'ICA 主峰面积 ica_peak_area',
 }
 #: 界面上的分段写法：``(中文说明, 数学符号富文本)``。
 #: 变量用斜体、下标用 <sub>（数学排版习惯），避免 dq_v 这种下划线写法。
@@ -134,6 +137,9 @@ FEATURE_LABELS = {
     'CCCT': ('恒流充电时长', '<i>CCCT</i>'),
     'CVCT': ('恒压充电时长', '<i>CVCT</i>'),
     'resistance': ('内阻', '<i>resistance</i>'),
+    'ica_peak_v': ('ICA 主峰位置', '<i>V</i><sub>peak</sub>'),
+    'ica_peak_h': ('ICA 主峰高度', '<i>H</i><sub>peak</sub>'),
+    'ica_peak_area': ('ICA 主峰面积', '<i>A</i><sub>peak</sub>'),
 }
 DEFAULT_FEATURES = ('capacity',)
 
