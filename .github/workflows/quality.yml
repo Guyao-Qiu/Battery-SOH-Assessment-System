@@ -36,6 +36,8 @@ jobs:
         run: python tools/check_undefined.py core models ui utils theme_tokens.py battery_soh_app.py
       - name: Guard - no hardcoded colours
         run: python tools/check_colors.py
+      - name: Guard - README defaults synced
+        run: python tools/sync_readme_defaults.py --check
       - name: Static security scan
         run: bandit -r core models ui utils battery_soh_app.py theme_tokens.py --ini .bandit
       - name: Dependency audit

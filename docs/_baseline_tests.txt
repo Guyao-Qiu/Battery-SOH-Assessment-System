@@ -1,0 +1,556 @@
+test_benchmark_runner_is_versioned (test_benchmark_manifest.StrictBenchmarkManifestTests) ... ok
+test_manifest_records_reproducible_strict_protocol (test_benchmark_manifest.StrictBenchmarkManifestTests) ... ok
+test_readme_publishes_new_benchmark_and_manifest_link (test_benchmark_manifest.StrictBenchmarkManifestTests) ... ok
+test_main_window_renders_determinate_progress_context (test_config_paths_progress.ProgressContractTests) ... ok
+test_rnn_training_reports_battery_seed_epoch_and_elapsed (test_config_paths_progress.ProgressContractTests) ... ok
+test_worker_emits_real_stage_progress_events (test_config_paths_progress.ProgressContractTests) ... ok
+test_config_save_failure_is_not_silently_swallowed (test_config_paths_progress.ProjectPathTests) ... ok
+test_logger_default_no_longer_depends_on_current_directory (test_config_paths_progress.ProjectPathTests) ... ok
+test_main_window_reports_config_save_failure (test_config_paths_progress.ProjectPathTests) ... ok
+test_runtime_paths_are_absolute_and_anchored_to_project (test_config_paths_progress.ProjectPathTests) ... ok
+test_device_normalization_accepts_ui_text_and_canonical_keys (test_config_roundtrip.CanonicalConfigKeyTests) ... ok
+test_feature_list_always_contains_capacity_first (test_config_roundtrip.CanonicalConfigKeyTests) ... ok
+test_legacy_config_written_with_ui_text_still_loads_as_canonical (test_config_roundtrip.CanonicalConfigKeyTests)
+旧版本把界面文本直接写进 JSON，导致 GPU 被静默切回 CPU。 ... ok
+test_save_import_save_round_trip_is_field_identical (test_config_roundtrip.CanonicalConfigKeyTests) ... ok
+test_unsupported_adapter_is_rejected (test_config_roundtrip.CanonicalConfigKeyTests) ... ok
+test_model_names_have_one_canonical_normalizer (test_config_roundtrip.ModelNameTests) ... ok
+test_unsupported_model_is_rejected_instead_of_falling_back (test_config_roundtrip.ModelNameTests) ... ok
+test_all_five_models_round_trip_every_configuration_field (test_config_roundtrip.TrainConfigRoundTripTests) ... ok
+test_legacy_xgboost_alias_fields_import_without_algorithm_change (test_config_roundtrip.TrainConfigRoundTripTests) ... ok
+test_main_window_applies_imported_config_for_each_model (test_config_roundtrip.TrainConfigRoundTripTests) ... ok
+test_close_timeout_ignores_close_event_and_preserves_running_worker (test_cooperative_stop.MainWindowStopTests) ... ok
+test_running_state_freezes_result_affecting_controls (test_cooperative_stop.MainWindowStopTests) ... ok
+test_source_has_no_forced_qthread_termination (test_cooperative_stop.MainWindowStopTests) ... ok
+test_stop_timeout_keeps_worker_and_reports_instead_of_terminating (test_cooperative_stop.MainWindowStopTests) ... ok
+test_cancelled_rnn_and_final_training_never_return_partial_results (test_cooperative_stop.WorkerInterruptionTests) ... ok
+test_cancelled_tree_training_stops_before_returning_partial_model (test_cooperative_stop.WorkerInterruptionTests) ... ok
+test_training_entry_points_accept_stop_checkpoints (test_cooperative_stop.WorkerInterruptionTests) ... ok
+test_worker_stop_sets_qthread_interruption_flag (test_cooperative_stop.WorkerInterruptionTests) ... ok
+test_double_exp_never_explodes (test_core.BaselineTests) ... ok
+test_persistence_and_linear_steps (test_core.BaselineTests) ... ok
+test_recursive_forecast_uses_step_fn (test_core.BaselineTests) ... ok
+test_blend_by_rollout_collapses_a_harmful_model (test_core.BlendTests) ... ok
+test_blend_by_rollout_keeps_a_helpful_model (test_core.BlendTests) ... ok
+test_blend_collapses_for_uninformative_model (test_core.BlendTests) ... ok
+test_first_cross_is_explicit_about_censoring (test_core.CensoringTests) ... ok
+test_relative_error_distinguishes_censoring_states (test_core.CensoringTests) ... ok
+test_config_normalises_debounce (test_core.FailureDebounceTests) ... ok
+test_debounce_handles_short_and_never_crossing_sequences (test_core.FailureDebounceTests) ... ok
+test_debounce_ignores_a_single_noise_dip (test_core.FailureDebounceTests) ... ok
+test_debounce_reports_the_first_crossing_not_the_confirmation (test_core.FailureDebounceTests) ... ok
+test_default_matches_the_legacy_first_crossing_semantics (test_core.FailureDebounceTests) ... ok
+test_only_one_failure_implementation_exists (test_core.FailureDebounceTests) ... ok
+test_rolling_eval_honours_debounce (test_core.FailureDebounceTests)
+滚动评估里的 true_rul 也必须按去抖后的判定来算。 ... ok
+test_seed_setup_reports_whether_it_was_strict (test_core.FailureDebounceTests)
+A12：严格确定性必须如实返回，而不是悄悄假装已经确定。 ... ok
+test_changing_target_does_not_change_training_fold (test_core.LeakageTests) ... ok
+test_loo_split_has_no_target_leakage (test_core.LeakageTests) ... ok
+test_adapter_defaults_to_mark_and_reports_it (test_core.OutlierModeTests) ... ok
+test_adapter_legacy_flag_still_deletes (test_core.OutlierModeTests) ... ok
+test_delete_mode_is_strictly_more_aggressive (test_core.OutlierModeTests) ... ok
+test_legacy_enabled_flag_still_maps_to_the_old_behaviour (test_core.OutlierModeTests) ... ok
+test_mark_mode_keeps_every_row (test_core.OutlierModeTests) ... ok
+test_off_mode_detects_nothing (test_core.OutlierModeTests) ... ok
+test_unknown_mode_is_rejected (test_core.OutlierModeTests) ... ok
+test_bootstrap_ci_widens_with_fewer_batteries (test_core.RollingOriginTests) ... ok
+test_rolling_eval_is_recursive_not_one_step (test_core.RollingOriginTests) ... ok
+test_rolling_eval_reports_true_censoring (test_core.RollingOriginTests) ... ok
+test_skill_is_positive_for_a_model_better_than_persistence (test_core.RollingOriginTests) ... ok
+test_summary_counts_batteries_not_seeds (test_core.RollingOriginTests) ... ok
+test_capacity_scaler_roundtrip (test_core.ScalerTests) ... ok
+test_feature_scaler_roundtrip (test_core.ScalerTests) ... ok
+test_forecast_eol_counts_future_cycles (test_core.TcpProtocolTests) ... ok
+test_forecast_eol_is_zero_when_already_failed (test_core.TcpProtocolTests) ... ok
+test_forecast_eol_returns_none_when_never_crossing (test_core.TcpProtocolTests) ... ok
+test_parser_accepts_valid_sample_and_reset (test_core.TcpProtocolTests) ... ok
+test_parser_rejects_malformed_input (test_core.TcpProtocolTests) ... ok
+test_body_text_meets_wcag_aa_in_both_themes (test_core.ThemeTokenTests) ... ok
+test_chart_elements_are_visible_on_chart_background (test_core.ThemeTokenTests) ... ok
+test_series_palette_is_visible_on_chart_background (test_core.ThemeTokenTests) ... ok
+test_themes_are_distinct (test_core.ThemeTokenTests) ... ok
+test_fast_windows_equal_reference (test_core.WindowTests) ... ok
+test_fast_windows_handle_short_input (test_core.WindowTests) ... ok
+test_multifeature_capacity_channel_matches_single_feature (test_core.WindowTests) ... ok
+test_multifeature_fill_is_causal_only (test_core.WindowTests) ... ok
+test_file_validator_exposes_resource_and_adapter_limits (test_data_validation.CalceDataValidationTests) ... ok
+test_oversized_file_is_rejected_before_dataframe_read (test_data_validation.CalceDataValidationTests) ... ok
+test_rejects_duplicate_nonfinite_unordered_and_wrong_current_data (test_data_validation.CalceDataValidationTests) ... ok
+test_valid_frame_requires_more_discharge_cycles_than_window (test_data_validation.CalceDataValidationTests) ... ok
+test_rejects_invalid_voltage_steps_capacity_threshold_and_window (test_data_validation.EvaluationParameterValidationTests) ... ok
+test_invalid_request_is_blocked_before_worker_starts (test_data_validation.MainWindowValidationGateTests) ... ok
+test_nasa_structure_rejects_excess_depth_and_bad_capacity (test_data_validation.NasaDataValidationTests) ... ok
+test_nasa_structure_uses_capacity_cycles_not_calce_columns (test_data_validation.NasaDataValidationTests) ... ok
+test_bilingual_readme_pair_is_published (test_engineering_hygiene.EngineeringHygieneTests) ... ok
+test_ci_runs_static_security_audit_tests_and_coverage (test_engineering_hygiene.EngineeringHygieneTests) ... ok
+test_cuda_environment_has_a_reproducible_lock (test_engineering_hygiene.EngineeringHygieneTests) ... ok
+test_distribution_excludes_runtime_and_ide_artifacts (test_engineering_hygiene.EngineeringHygieneTests) ... ok
+test_linux_ci_installs_pyqt_runtime_library (test_engineering_hygiene.EngineeringHygieneTests) ... ok
+test_quality_dependencies_are_exactly_locked (test_engineering_hygiene.EngineeringHygieneTests) ... ok
+test_readme_and_license_match_current_product (test_engineering_hygiene.EngineeringHygieneTests) ... ok
+test_ruff_enforces_undefined_names_repo_wide (test_engineering_hygiene.EngineeringHygieneTests)
+A1 修复后不应再为任何文件豁免 F821。 ... ok
+test_runtime_dependencies_are_exactly_locked (test_engineering_hygiene.EngineeringHygieneTests) ... ok
+test_undefined_names_and_hardcoded_colors_are_gated (test_engineering_hygiene.EngineeringHygieneTests)
+A1 / C1 的守卫脚本必须存在且能独立运行。 ... ok
+test_changing_target_early_labels_changes_training_data (test_evaluation_protocol.EvaluationIsolationTests)
+旧项目口径：目标电池早期数据参与训练，因此会改变训练集。 ... ok
+test_multi_seed_primary_result_is_best_seed_for_recurrent (test_evaluation_protocol.EvaluationIsolationTests)
+旧项目口径：循环模型取 RMSE 最优种子的预测，而不是种子平均。 ... ok
+test_target_battery_initial_window_enters_training_data (test_evaluation_protocol.EvaluationIsolationTests)
+旧项目口径：目标电池前 window+1 个点参与训练。 ... ok
+test_train_checks_capacity_length_not_mapping_field_count (test_evaluation_protocol.EvaluationIsolationTests) ... ok
+test_tree_trainers_require_a_validation_set_separate_from_test (test_evaluation_protocol.EvaluationIsolationTests) ... ok
+test_one_step_and_recursive_future_use_distinct_history_rules (test_evaluation_protocol.PredictionProtocolTests) ... ok
+test_protocol_result_has_separate_fields_and_rul_uses_recursive_path (test_evaluation_protocol.PredictionProtocolTests) ... ok
+test_readme_publishes_the_rerun_strict_protocol_result (test_evaluation_protocol.PredictionProtocolTests) ... ok
+test_ui_failure_cycle_comes_from_recursive_future_prediction (test_evaluation_protocol.PredictionProtocolTests) ... ok
+test_random_forest_final_fit_uses_every_valid_battery (test_final_model_training.FinalAllBatteryTrainingTests) ... ok
+test_recurrent_final_fit_uses_every_valid_battery (test_final_model_training.FinalAllBatteryTrainingTests) ... ok
+test_xgboost_final_fit_uses_every_valid_battery (test_final_model_training.FinalAllBatteryTrainingTests) ... ok
+test_failure_cycles_use_original_cycle_identifiers (test_metric_semantics.FailureCycleSemanticsTests) ... ok
+test_no_crossing_is_distinguished_from_predicted_failure (test_metric_semantics.FailureCycleSemanticsTests) ... ok
+test_recursive_prediction_is_aligned_after_observed_window (test_metric_semantics.FailureCycleSemanticsTests) ... ok
+test_ui_explains_ci_is_only_within_fold_seed_variation (test_metric_semantics.MetricPresentationTests) ... ok
+test_unavailable_metric_has_safe_na_formatter_and_mean (test_metric_semantics.MetricPresentationTests) ... ok
+test_initial_failure_is_reported_as_undefined (test_metric_semantics.RelativeErrorSemanticsTests) ... ok
+test_metric_payload_distinguishes_censoring_states (test_metric_semantics.RelativeErrorSemanticsTests) ... ok
+test_missing_threshold_crossing_is_censored_not_worst_case_one (test_metric_semantics.RelativeErrorSemanticsTests) ... ok
+test_all_five_models_train_save_load_and_predict (test_model_artifact_smoke.ModelArtifactSmokeTests) ... ok
+test_explicitly_approved_joblib_round_trip_still_checks_type (test_model_loading_security.SafeModelLoadingTests) ... ok
+test_fake_extension_and_mismatched_metadata_are_safely_rejected (test_model_loading_security.SafeModelLoadingTests) ... ok
+test_missing_metadata_and_oversized_files_are_rejected_before_load (test_model_loading_security.SafeModelLoadingTests) ... ok
+test_missing_state_dict_key_is_rejected_without_partial_model (test_model_loading_security.SafeModelLoadingTests) ... ok
+test_pickle_is_forbidden_and_joblib_requires_explicit_opt_in (test_model_loading_security.SafeModelLoadingTests) ... ok
+test_pytorch_file_contains_only_state_dict_and_validated_sidecar (test_model_loading_security.SafeModelLoadingTests) ... ok
+test_tampered_file_is_rejected_before_torch_deserialization (test_model_loading_security.SafeModelLoadingTests) ... ok
+test_failed_load_keeps_previous_model_and_metadata_together (test_model_session.LoadedModelSessionTests) ... ok
+test_successful_load_commits_pair_and_unload_returns_to_training (test_model_session.LoadedModelSessionTests) ... 2026-11-17 19:51:33,032 - INFO - 已加载 RNN 模型：model.pt
+2026-11-17 19:51:33,040 - INFO -   窗口大小=2，额定容量=1.1
+2026-11-17 19:51:33,042 - INFO - 已卸载模型，开始评估时将重新训练。
+ok
+test_recurrent_model_and_input_fall_back_to_same_available_device (test_model_session.PredictionDeviceTests) ... ok
+test_adapter_only_lists_batteries_that_were_loaded_successfully (test_named_results.NamedResultContractTests) ... ok
+test_chart_accepts_predictions_keyed_by_battery_name (test_named_results.NamedResultContractTests) ... ok
+test_prediction_worker_emits_one_name_keyed_result_object (test_named_results.NamedResultContractTests) ... ok
+test_training_results_are_keyed_by_battery_name (test_named_results.NamedResultContractTests) ... ok
+test_filter_reports_mask_count_and_reason_and_can_be_disabled (test_outlier_audit.AuditableOutlierFilterTests) ... ok
+test_persistent_degradation_knee_is_protected (test_outlier_audit.AuditableOutlierFilterTests) ... ok
+test_stable_windows_and_two_sigma_boundary_are_retained (test_outlier_audit.AuditableOutlierFilterTests) ... ok
+test_original_cycles_and_features_stay_aligned_after_skips (test_outlier_audit.CycleAlignmentTests) ... ok
+test_future_values_cannot_change_an_earlier_filter_decision (test_overfit_guard.CausalCleaningTests) ... ok
+test_final_model_does_not_shrink_to_persistence (test_overfit_guard.PersistenceBlendTests) ... ok
+test_fold_calibration_uses_training_battery_validation_only (test_overfit_guard.PersistenceBlendTests) ... ok
+test_shared_prediction_applies_persisted_blend (test_overfit_guard.PersistenceBlendTests) ... ok
+test_validation_fit_shrinks_a_harmful_model_to_persistence (test_overfit_guard.PersistenceBlendTests) ... ok
+test_actual_workbook_sheet_limit_is_rejected_before_data_loading (test_phase5_dataset_integration.Phase5GoldenDatasetTests) ... ok
+test_calce_folder_rebases_per_file_cycle_resets (test_phase5_dataset_integration.Phase5GoldenDatasetTests) ... ok
+test_folder_with_valid_corrupt_file_and_empty_subfolder_still_loads (test_phase5_dataset_integration.Phase5GoldenDatasetTests) ... ok
+test_minimal_calce_csv_and_excel_have_identical_capacity_contract (test_phase5_dataset_integration.Phase5GoldenDatasetTests) ... ok
+test_minimal_nasa_mat_extracts_named_discharge_cycles (test_phase5_dataset_integration.Phase5GoldenDatasetTests) ... ok
+test_mixed_valid_corrupt_and_empty_inputs_keep_only_valid_battery (test_phase5_dataset_integration.Phase5GoldenDatasetTests) ... ok
+test_empty_mismatched_and_nonfinite_sequences_are_rejected_clearly (test_phase5_edge_cases.Phase5MetricDegenerateInputTests) ... ok
+test_short_and_constant_sequences_return_stable_metric_payloads (test_phase5_edge_cases.Phase5MetricDegenerateInputTests) ... ok
+test_nonfinite_points_are_removed_without_moving_finite_indices (test_phase5_edge_cases.Phase5OutlierBoundaryTests) ... ok
+test_no_crossing_initial_failure_and_truncation_are_explicit (test_phase5_edge_cases.Phase5RelativeErrorBoundaryTests) ... ok
+test_normal_and_multiple_crossings_use_the_first_crossing (test_phase5_edge_cases.Phase5RelativeErrorBoundaryTests) ... ok
+test_cpu_saved_model_loads_on_cpu_and_predicts (test_phase5_model_devices.Phase5ModelDeviceTests) ... ok
+test_incompatible_format_version_is_rejected_before_weight_loading (test_phase5_model_devices.Phase5ModelDeviceTests) ... ok
+test_real_cuda_prediction_moves_loaded_cpu_model_and_input_together (test_phase5_model_devices.Phase5ModelDeviceTests) ... ok
+test_font_at_150_percent_keeps_core_controls_usable (test_phase5_ui_accessibility.Phase5RuntimeAccessibilityTests) ... ok
+test_keyboard_focus_chain_reaches_primary_controls_in_actual_window (test_phase5_ui_accessibility.Phase5RuntimeAccessibilityTests) ... ok
+test_window_uses_positive_device_pixel_ratio_for_high_dpi_rendering (test_phase5_ui_accessibility.Phase5RuntimeAccessibilityTests) ... ok
+test_import_select_train_render_and_export_real_report_bundle (test_phase5_ui_workflows.Phase5UiWorkflowTests) ... 2026-11-17 19:51:37,387 - INFO - 开始评估，配置：TrainConfig(rated_capacity=1.1, threshold_ratio=0.7, voltage_upper=3.8, voltage_lower=3.4, window_size=2, epochs=100, hidden_dim=64, mode='RF', metric='all', device='cpu', seed=2, n_seeds=1, patience=20, norm_method='minmax', n_estimators=10, learning_rate=0.1, max_depth=2, subsample=1.0, colsample_bytree=1.0, min_samples_leaf=1, max_features=1.0, rnn_lr=0.001, rnn_dropout=0.1, feature_columns=('capacity',), eol_debounce=1, adapter_type='CALCE', cc_step=2, cv_step=4, discharge_step=7, outlier_mode='chunked', backbone='default', num_layers=1, nhead=1, transformer_k=16, alpha=0.1, noise_level=0.0, weight_decay=0.0, prediction_mode='one_step')
+2026-11-17 19:51:37,388 - INFO - 开始加载数据...
+2026-11-17 19:51:37,390 - INFO - 加载数据集 cell_a ...
+2026-11-17 19:51:37,392 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmp2qu5jytn\cell_a.csv 的排序信息 ...
+2026-11-17 19:51:37,395 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmp2qu5jytn\cell_a.csv ...
+2026-11-17 19:51:37,397 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:37,397 - INFO - cell_a 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:37,397 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:37,398 - INFO - 加载数据集 cell_b ...
+2026-11-17 19:51:37,400 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmp2qu5jytn\cell_b.csv 的排序信息 ...
+2026-11-17 19:51:37,401 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmp2qu5jytn\cell_b.csv ...
+2026-11-17 19:51:37,402 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:37,403 - INFO - cell_b 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:37,403 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:37,404 - INFO - 加载数据集 cell_c ...
+2026-11-17 19:51:37,405 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmp2qu5jytn\cell_c.csv 的排序信息 ...
+2026-11-17 19:51:37,407 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmp2qu5jytn\cell_c.csv ...
+2026-11-17 19:51:37,408 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:37,409 - INFO - cell_c 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:37,409 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:37,410 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:37,410 - INFO - 开始训练评估...
+2026-11-17 19:51:37,410 - INFO - 留一法验证：共 3 个电池，每次留 1 个作测试、其余训练，随机种子固定为 2，确保结果可复现
+2026-11-17 19:51:37,411 - INFO - 预测模式：单步预测（基于真实历史窗口）
+2026-11-17 19:51:37,421 - INFO - [cell_a] 使用配置默认超参 {'n_estimators': 10, 'max_depth': 2}（最初样式：跳过内层交叉验证）
+2026-11-17 19:51:37,430 - INFO - [cell_a] 预测模式：单步预测（基于真实历史窗口）
+2026-11-17 19:51:37,437 - INFO - [cell_b] 使用配置默认超参 {'n_estimators': 10, 'max_depth': 2}（最初样式：跳过内层交叉验证）
+2026-11-17 19:51:37,446 - INFO - [cell_b] 预测模式：单步预测（基于真实历史窗口）
+2026-11-17 19:51:37,453 - INFO - [cell_c] 使用配置默认超参 {'n_estimators': 10, 'max_depth': 2}（最初样式：跳过内层交叉验证）
+2026-11-17 19:51:37,462 - INFO - [cell_c] 预测模式：单步预测（基于真实历史窗口）
+2026-11-17 19:51:37,463 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:37,463 - INFO - 正在基于全部数据训练最终模型...
+2026-11-17 19:51:37,464 - INFO - [最终模型] 使用配置默认超参 {'n_estimators': 10, 'max_depth': 2}（最初样式：跳过内层交叉验证）
+2026-11-17 19:51:37,469 - INFO - [最终模型] 已用全部 3 块电池、18 个样本重训，超参={'n_estimators': 10, 'max_depth': 2}
+2026-11-17 19:51:37,470 - INFO - 最终模型（全数据训练）已就绪，可点击"保存模型"导出。
+2026-11-17 19:51:37,470 - INFO - 最终模型训练完成，可点击"保存模型"导出。
+2026-11-17 19:51:37,472 - INFO - 
+
+
+2026-11-17 19:51:37,472 - INFO - 各电池 全部 分数：
+2026-11-17 19:51:37,472 - INFO -   cell_a：0.084412
+2026-11-17 19:51:37,473 - INFO -   cell_b：0.101529
+2026-11-17 19:51:37,473 - INFO -   cell_c：0.112028
+2026-11-17 19:51:37,473 - INFO - → 平均 全部: 0.099323
+2026-11-17 19:51:37,474 - INFO - 已展示全部指标
+2026-11-17 19:51:37,474 - INFO - 训练总耗时：0.1秒
+ok
+test_load_model_and_batch_predict_every_metric_selection (test_phase5_ui_workflows.Phase5UiWorkflowTests) ... 2026-11-17 19:51:40,270 - INFO - 已加载 RNN 模型：safe-model.pt
+2026-11-17 19:51:40,270 - INFO -   窗口大小=2，额定容量=1.1
+2026-11-17 19:51:40,273 - INFO - 开始加载数据...
+2026-11-17 19:51:40,274 - INFO - 加载数据集 cell_a ...
+2026-11-17 19:51:40,276 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_a.csv 的排序信息 ...
+2026-11-17 19:51:40,277 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_a.csv ...
+2026-11-17 19:51:40,279 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:40,279 - INFO - cell_a 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:40,279 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:40,280 - INFO - 加载数据集 cell_b ...
+2026-11-17 19:51:40,281 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_b.csv 的排序信息 ...
+2026-11-17 19:51:40,283 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_b.csv ...
+2026-11-17 19:51:40,284 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:40,285 - INFO - cell_b 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:40,285 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:40,286 - INFO - 加载数据集 cell_c ...
+2026-11-17 19:51:40,287 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_c.csv 的排序信息 ...
+2026-11-17 19:51:40,288 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_c.csv ...
+2026-11-17 19:51:40,290 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:40,290 - INFO - cell_c 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:40,291 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:40,291 - INFO - [cell_a] 预测中，测试样本 6...
+2026-11-17 19:51:40,296 - INFO - [cell_a] RMSE=0.1369 MAE=0.1310 R²=-9.2856 Pearson=0.9992 RE(递归)=N/A（截尾）
+2026-11-17 19:51:40,297 - INFO - [cell_b] 预测中，测试样本 6...
+2026-11-17 19:51:40,300 - INFO - [cell_b] RMSE=0.1280 MAE=0.1217 R²=-7.9902 Pearson=0.9992 RE(递归)=N/A（截尾）
+2026-11-17 19:51:40,301 - INFO - [cell_c] 预测中，测试样本 6...
+2026-11-17 19:51:40,305 - INFO - [cell_c] RMSE=0.1192 MAE=0.1124 R²=-6.7921 Pearson=0.9993 RE(递归)=N/A（截尾）
+2026-11-17 19:51:40,305 - INFO - 各电池 RMSE 分数：
+2026-11-17 19:51:40,306 - INFO -   cell_a：0.136930
+2026-11-17 19:51:40,306 - INFO -   cell_b：0.128017
+2026-11-17 19:51:40,307 - INFO -   cell_c：0.119182
+2026-11-17 19:51:40,307 - INFO - → 平均 RMSE: 0.128043
+2026-11-17 19:51:40,846 - INFO - 开始加载数据...
+2026-11-17 19:51:40,848 - INFO - 加载数据集 cell_a ...
+2026-11-17 19:51:40,849 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_a.csv 的排序信息 ...
+2026-11-17 19:51:40,851 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_a.csv ...
+2026-11-17 19:51:40,852 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:40,853 - INFO - cell_a 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:40,853 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:40,854 - INFO - 加载数据集 cell_b ...
+2026-11-17 19:51:40,855 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_b.csv 的排序信息 ...
+2026-11-17 19:51:40,856 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_b.csv ...
+2026-11-17 19:51:40,858 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:40,859 - INFO - cell_b 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:40,859 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:40,860 - INFO - 加载数据集 cell_c ...
+2026-11-17 19:51:40,861 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_c.csv 的排序信息 ...
+2026-11-17 19:51:40,862 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_c.csv ...
+2026-11-17 19:51:40,864 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:40,864 - INFO - cell_c 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:40,865 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:40,865 - INFO - [cell_a] 预测中，测试样本 6...
+2026-11-17 19:51:40,869 - INFO - [cell_a] RMSE=0.1369 MAE=0.1310 R²=-9.2856 Pearson=0.9992 RE(递归)=N/A（截尾）
+2026-11-17 19:51:40,870 - INFO - [cell_b] 预测中，测试样本 6...
+2026-11-17 19:51:40,873 - INFO - [cell_b] RMSE=0.1280 MAE=0.1217 R²=-7.9902 Pearson=0.9992 RE(递归)=N/A（截尾）
+2026-11-17 19:51:40,873 - INFO - [cell_c] 预测中，测试样本 6...
+2026-11-17 19:51:40,876 - INFO - [cell_c] RMSE=0.1192 MAE=0.1124 R²=-6.7921 Pearson=0.9993 RE(递归)=N/A（截尾）
+2026-11-17 19:51:40,877 - INFO - 各电池 MAE 分数：
+2026-11-17 19:51:40,877 - INFO -   cell_a：0.131004
+2026-11-17 19:51:40,877 - INFO -   cell_b：0.121679
+2026-11-17 19:51:40,878 - INFO -   cell_c：0.112368
+2026-11-17 19:51:40,878 - INFO - → 平均 MAE: 0.121683
+2026-11-17 19:51:41,551 - INFO - 开始加载数据...
+2026-11-17 19:51:41,552 - INFO - 加载数据集 cell_a ...
+2026-11-17 19:51:41,554 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_a.csv 的排序信息 ...
+2026-11-17 19:51:41,555 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_a.csv ...
+2026-11-17 19:51:41,557 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:41,557 - INFO - cell_a 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:41,558 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:41,558 - INFO - 加载数据集 cell_b ...
+2026-11-17 19:51:41,560 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_b.csv 的排序信息 ...
+2026-11-17 19:51:41,561 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_b.csv ...
+2026-11-17 19:51:41,562 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:41,563 - INFO - cell_b 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:41,564 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:41,564 - INFO - 加载数据集 cell_c ...
+2026-11-17 19:51:41,565 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_c.csv 的排序信息 ...
+2026-11-17 19:51:41,567 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_c.csv ...
+2026-11-17 19:51:41,568 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:41,569 - INFO - cell_c 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:41,569 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:41,570 - INFO - [cell_a] 预测中，测试样本 6...
+2026-11-17 19:51:41,574 - INFO - [cell_a] RMSE=0.1369 MAE=0.1310 R²=-9.2856 Pearson=0.9992 RE(递归)=N/A（截尾）
+2026-11-17 19:51:41,574 - INFO - [cell_b] 预测中，测试样本 6...
+2026-11-17 19:51:41,577 - INFO - [cell_b] RMSE=0.1280 MAE=0.1217 R²=-7.9902 Pearson=0.9992 RE(递归)=N/A（截尾）
+2026-11-17 19:51:41,578 - INFO - [cell_c] 预测中，测试样本 6...
+2026-11-17 19:51:41,581 - INFO - [cell_c] RMSE=0.1192 MAE=0.1124 R²=-6.7921 Pearson=0.9993 RE(递归)=N/A（截尾）
+2026-11-17 19:51:41,581 - INFO - 各电池 R² 分数：
+2026-11-17 19:51:41,582 - INFO -   cell_a：-9.285552
+2026-11-17 19:51:41,582 - INFO -   cell_b：-7.990228
+2026-11-17 19:51:41,583 - INFO -   cell_c：-6.792096
+2026-11-17 19:51:41,583 - INFO - → 平均 R²: -8.022625
+2026-11-17 19:51:42,078 - INFO - 开始加载数据...
+2026-11-17 19:51:42,079 - INFO - 加载数据集 cell_a ...
+2026-11-17 19:51:42,081 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_a.csv 的排序信息 ...
+2026-11-17 19:51:42,082 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_a.csv ...
+2026-11-17 19:51:42,084 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:42,084 - INFO - cell_a 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:42,085 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:42,086 - INFO - 加载数据集 cell_b ...
+2026-11-17 19:51:42,087 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_b.csv 的排序信息 ...
+2026-11-17 19:51:42,089 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_b.csv ...
+2026-11-17 19:51:42,090 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:42,090 - INFO - cell_b 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:42,091 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:42,092 - INFO - 加载数据集 cell_c ...
+2026-11-17 19:51:42,093 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_c.csv 的排序信息 ...
+2026-11-17 19:51:42,094 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_c.csv ...
+2026-11-17 19:51:42,096 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:42,096 - INFO - cell_c 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:42,097 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:42,097 - INFO - [cell_a] 预测中，测试样本 6...
+2026-11-17 19:51:42,101 - INFO - [cell_a] RMSE=0.1369 MAE=0.1310 R²=-9.2856 Pearson=0.9992 RE(递归)=N/A（截尾）
+2026-11-17 19:51:42,101 - INFO - [cell_b] 预测中，测试样本 6...
+2026-11-17 19:51:42,105 - INFO - [cell_b] RMSE=0.1280 MAE=0.1217 R²=-7.9902 Pearson=0.9992 RE(递归)=N/A（截尾）
+2026-11-17 19:51:42,106 - INFO - [cell_c] 预测中，测试样本 6...
+2026-11-17 19:51:42,108 - INFO - [cell_c] RMSE=0.1192 MAE=0.1124 R²=-6.7921 Pearson=0.9993 RE(递归)=N/A（截尾）
+2026-11-17 19:51:42,109 - INFO - 各电池 Pearson 分数：
+2026-11-17 19:51:42,109 - INFO -   cell_a：0.999199
+2026-11-17 19:51:42,109 - INFO -   cell_b：0.999231
+2026-11-17 19:51:42,109 - INFO -   cell_c：0.999263
+2026-11-17 19:51:42,109 - INFO - → 平均 Pearson: 0.999231
+2026-11-17 19:51:42,802 - INFO - 开始加载数据...
+2026-11-17 19:51:42,803 - INFO - 加载数据集 cell_a ...
+2026-11-17 19:51:42,805 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_a.csv 的排序信息 ...
+2026-11-17 19:51:42,807 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_a.csv ...
+2026-11-17 19:51:42,808 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:42,809 - INFO - cell_a 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:42,809 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:42,810 - INFO - 加载数据集 cell_b ...
+2026-11-17 19:51:42,811 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_b.csv 的排序信息 ...
+2026-11-17 19:51:42,812 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_b.csv ...
+2026-11-17 19:51:42,814 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:42,814 - INFO - cell_b 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:42,815 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:42,815 - INFO - 加载数据集 cell_c ...
+2026-11-17 19:51:42,817 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_c.csv 的排序信息 ...
+2026-11-17 19:51:42,818 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_c.csv ...
+2026-11-17 19:51:42,820 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:42,820 - INFO - cell_c 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:42,821 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:42,821 - INFO - [cell_a] 预测中，测试样本 6...
+2026-11-17 19:51:42,825 - INFO - [cell_a] RMSE=0.1369 MAE=0.1310 R²=-9.2856 Pearson=0.9992 RE(递归)=N/A（截尾）
+2026-11-17 19:51:42,825 - INFO - [cell_b] 预测中，测试样本 6...
+2026-11-17 19:51:42,829 - INFO - [cell_b] RMSE=0.1280 MAE=0.1217 R²=-7.9902 Pearson=0.9992 RE(递归)=N/A（截尾）
+2026-11-17 19:51:42,829 - INFO - [cell_c] 预测中，测试样本 6...
+2026-11-17 19:51:42,832 - INFO - [cell_c] RMSE=0.1192 MAE=0.1124 R²=-6.7921 Pearson=0.9993 RE(递归)=N/A（截尾）
+2026-11-17 19:51:42,833 - INFO - 各电池 RE 分数：
+2026-11-17 19:51:42,834 - INFO -   cell_a：N/A（截尾）
+2026-11-17 19:51:42,834 - INFO -   cell_b：N/A（截尾）
+2026-11-17 19:51:42,835 - INFO -   cell_c：N/A（截尾）
+2026-11-17 19:51:42,835 - INFO - → 平均 RE: N/A（截尾）
+2026-11-17 19:51:43,339 - INFO - 开始加载数据...
+2026-11-17 19:51:43,340 - INFO - 加载数据集 cell_a ...
+2026-11-17 19:51:43,342 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_a.csv 的排序信息 ...
+2026-11-17 19:51:43,344 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_a.csv ...
+2026-11-17 19:51:43,345 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:43,346 - INFO - cell_a 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:43,346 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:43,347 - INFO - 加载数据集 cell_b ...
+2026-11-17 19:51:43,348 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_b.csv 的排序信息 ...
+2026-11-17 19:51:43,349 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_b.csv ...
+2026-11-17 19:51:43,351 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:43,351 - INFO - cell_b 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:43,352 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:43,353 - INFO - 加载数据集 cell_c ...
+2026-11-17 19:51:43,355 - INFO - 读取 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_c.csv 的排序信息 ...
+2026-11-17 19:51:43,356 - INFO - 加载 C:\Users\GuYao\AppData\Local\Temp\tmpefnd9ujr\cell_c.csv ...
+2026-11-17 19:51:43,357 - INFO - 数据筛选原则：将容量序列按每 40 个循环划分为局部窗口，窗口内计算均值 μ 与标准差 σ，剔除超出 μ±2σ 范围的点。边界点和稳定窗口保留，持续退化膝点受到保护。
+2026-11-17 19:51:43,357 - INFO - cell_c 异常值审计：输入 8，保留 8，剔除 0，标记 0，保护膝点 0。
+2026-11-17 19:51:43,358 - INFO - ────────────────────────────────────────
+2026-11-17 19:51:43,359 - INFO - [cell_a] 预测中，测试样本 6...
+2026-11-17 19:51:43,362 - INFO - [cell_a] RMSE=0.1369 MAE=0.1310 R²=-9.2856 Pearson=0.9992 RE(递归)=N/A（截尾）
+2026-11-17 19:51:43,363 - INFO - [cell_b] 预测中，测试样本 6...
+2026-11-17 19:51:43,366 - INFO - [cell_b] RMSE=0.1280 MAE=0.1217 R²=-7.9902 Pearson=0.9992 RE(递归)=N/A（截尾）
+2026-11-17 19:51:43,366 - INFO - [cell_c] 预测中，测试样本 6...
+2026-11-17 19:51:43,369 - INFO - [cell_c] RMSE=0.1192 MAE=0.1124 R²=-6.7921 Pearson=0.9993 RE(递归)=N/A（截尾）
+2026-11-17 19:51:43,369 - INFO - 各电池全部指标已计算：
+2026-11-17 19:51:43,370 - INFO -   cell_a：RMSE=0.136930，MAE=0.131004，R²=-9.285552，Pearson=0.999199，RE=N/A（截尾）
+2026-11-17 19:51:43,371 - INFO -   cell_b：RMSE=0.128017，MAE=0.121679，R²=-7.990228，Pearson=0.999231，RE=N/A（截尾）
+2026-11-17 19:51:43,371 - INFO -   cell_c：RMSE=0.119182，MAE=0.112368，R²=-6.792096，Pearson=0.999263，RE=N/A（截尾）
+2026-11-17 19:51:43,372 - INFO - → 平均 RMSE: 0.128043
+2026-11-17 19:51:43,372 - INFO - → 平均 MAE: 0.121683
+2026-11-17 19:51:43,372 - INFO - → 平均 R²: -8.022625
+2026-11-17 19:51:43,372 - INFO - → 平均 Pearson: 0.999231
+2026-11-17 19:51:43,374 - INFO - → 平均 RE: N/A（截尾）
+ok
+test_loaded_prediction_uses_calc_all_metrics_and_protocol_fields (test_predict_worker_metrics.LoadedModelMetricTests) ... ok
+test_metric_summary_selects_requested_metric_or_all (test_predict_worker_metrics.LoadedModelMetricTests) ... ok
+test_worker_runs_each_single_metric_and_all_without_key_error (test_predict_worker_metrics.LoadedModelMetricTests) ... ok
+test_each_calce_file_is_fully_read_only_once (test_resource_efficiency.CalceReadEfficiencyTests) ... ok
+test_real_calce_excel_sort_date_comes_from_data_sheet (test_resource_efficiency.CalceReadEfficiencyTests) ... ok
+test_fold_and_final_rnn_training_use_bounded_batches (test_resource_efficiency.RecurrentBatchingTests) ... ok
+test_tensor_loader_keeps_training_batches_bounded_on_cpu (test_resource_efficiency.RecurrentBatchingTests) ... ok
+test_chart_context_menu_uses_the_paper_ink_palette (test_retraining_and_chart_navigation.FullscreenChartNavigationTests) ... ok
+test_fullscreen_left_drag_pans_visible_region (test_retraining_and_chart_navigation.FullscreenChartNavigationTests) ... ok
+test_fullscreen_wheel_zooms_around_pointer (test_retraining_and_chart_navigation.FullscreenChartNavigationTests) ... ok
+test_result_subplot_can_be_replayed_alone_in_fullscreen_canvas (test_retraining_and_chart_navigation.FullscreenChartNavigationTests) ... ok
+test_right_click_menu_offers_current_subplot_and_all_subplots (test_retraining_and_chart_navigation.FullscreenChartNavigationTests) ... ok
+test_completed_runs_are_kept_as_separate_result_batches (test_retraining_and_chart_navigation.RetrainingWindowWorkflowTests) ... ok
+test_completed_training_prompts_before_reusing_current_window (test_retraining_and_chart_navigation.RetrainingWindowWorkflowTests) ... ok
+test_current_window_retraining_clears_log_but_keeps_old_result (test_retraining_and_chart_navigation.RetrainingWindowWorkflowTests) ... 2026-11-17 19:51:52,100 - INFO - 开始评估，配置：TrainConfig(rated_capacity=1.1, threshold_ratio=0.7, voltage_upper=3.8, voltage_lower=3.4, window_size=64, epochs=100, hidden_dim=64, mode='RNN', metric='rmse', device='cpu', seed=2, n_seeds=1, patience=20, norm_method='rated', n_estimators=100, learning_rate=0.1, max_depth=6, subsample=1.0, colsample_bytree=1.0, min_samples_leaf=1, max_features=1.0, rnn_lr=0.001, rnn_dropout=0.1, feature_columns=('capacity',), eol_debounce=1, adapter_type='CALCE', cc_step=2, cv_step=4, discharge_step=7, outlier_mode='chunked', backbone='default', num_layers=1, nhead=1, transformer_k=16, alpha=0.1, noise_level=0.0, weight_decay=0.0, prediction_mode='one_step')
+ok
+test_new_window_copies_inputs_and_parameters_then_starts_training (test_retraining_and_chart_navigation.RetrainingWindowWorkflowTests) ... 2026-11-17 19:51:56,876 - INFO - 开始评估，配置：TrainConfig(rated_capacity=1.1, threshold_ratio=0.7, voltage_upper=3.8, voltage_lower=3.4, window_size=64, epochs=10, hidden_dim=64, mode='RF', metric='rmse', device='cpu', seed=29, n_seeds=1, patience=20, norm_method='rated', n_estimators=100, learning_rate=0.1, max_depth=10, subsample=1.0, colsample_bytree=1.0, min_samples_leaf=1, max_features=1.0, rnn_lr=0.001, rnn_dropout=0.1, feature_columns=('capacity',), eol_debounce=1, adapter_type='CALCE', cc_step=2, cv_step=4, discharge_step=7, outlier_mode='chunked', backbone='default', num_layers=1, nhead=1, transformer_k=16, alpha=0.1, noise_level=0.0, weight_decay=0.0, prediction_mode='one_step')
+ok
+test_second_start_cannot_replace_worker_before_completion (test_retraining_and_chart_navigation.RetrainingWindowWorkflowTests) ... 2026-11-17 19:51:59,370 - INFO - 开始评估，配置：TrainConfig(rated_capacity=1.1, threshold_ratio=0.7, voltage_upper=3.8, voltage_lower=3.4, window_size=64, epochs=100, hidden_dim=64, mode='RNN', metric='rmse', device='cpu', seed=2, n_seeds=1, patience=20, norm_method='rated', n_estimators=100, learning_rate=0.1, max_depth=6, subsample=1.0, colsample_bytree=1.0, min_samples_leaf=1, max_features=1.0, rnn_lr=0.001, rnn_dropout=0.1, feature_columns=('capacity',), eol_debounce=1, adapter_type='CALCE', cc_step=2, cv_step=4, discharge_step=7, outlier_mode='chunked', backbone='default', num_layers=1, nhead=1, transformer_k=16, alpha=0.1, noise_level=0.0, weight_decay=0.0, prediction_mode='one_step')
+ok
+test_existing_report_requires_confirmation_before_overwrite (test_run_snapshot_export.SnapshotAndExportTests) ... ok
+test_export_failure_is_actionable_and_leaves_no_partial_files (test_run_snapshot_export.SnapshotAndExportTests) ... ok
+test_export_uses_snapshot_and_creates_run_id_directory (test_run_snapshot_export.SnapshotAndExportTests) ... ok
+test_main_window_export_does_not_rebuild_live_ui_config (test_run_snapshot_export.SnapshotAndExportTests) ... ok
+test_snapshot_deep_copies_and_freezes_paths_and_config (test_run_snapshot_export.SnapshotAndExportTests) ... ok
+test_workers_defensively_copy_config_and_paths (test_run_snapshot_export.SnapshotAndExportTests) ... ok
+test_error_dialog_is_concise_while_local_log_keeps_full_detail (test_safe_logging.SafeLogPresentationTests) ... 2026-11-17 19:52:05,027 - INFO - 错误：预测失败：坏数据
+ok
+test_untrusted_log_text_is_rendered_literally_not_as_html (test_safe_logging.SafeLogPresentationTests) ... 2026-11-17 19:52:08,054 - INFO - <img src="missing" onerror="boom">cell.xlsx
+ok
+test_startup_dialog_message_omits_traceback_and_local_paths (test_safe_logging.StartupErrorBoundaryTests) ... ok
+test_worker_logs_traceback_locally_and_emits_concise_error (test_safe_logging.WorkerErrorBoundaryTests) ... ok
+test_scaler_fit_uses_training_batteries_only (test_scaling.CapacityScalerTests) ... ok
+test_scaler_metadata_round_trip_preserves_transform (test_scaling.CapacityScalerTests) ... ok
+test_three_scalers_apply_expected_formula_and_inverse (test_scaling.CapacityScalerTests) ... ok
+test_final_model_metadata_contains_fitted_scaler (test_scaling.SharedPredictionScalingTests) ... ok
+test_fold_training_records_scaler_fitted_without_target_battery (test_scaling.SharedPredictionScalingTests) ... ok
+test_legacy_tree_model_without_scaler_keeps_raw_input_contract (test_scaling.SharedPredictionScalingTests) ... ok
+test_rnn_receives_scaled_tensor_and_returns_raw_capacity (test_scaling.SharedPredictionScalingTests) ... ok
+test_saved_loaded_model_keeps_scaler_prediction_consistent (test_scaling.SharedPredictionScalingTests) ... ok
+test_tcp_prediction_calls_shared_scaler_path (test_scaling.SharedPredictionScalingTests)
+A10：TCP 的递归预测仍走共用的 predict_capacity_batch（同一 scaler 契约）。 ... ok
+test_data_summary_tracks_imported_item_count (test_startup_loading_flow.EvaluationStartupFlowTests) ... ok
+test_main_window_starts_directly_with_sidebar_workspace (test_startup_loading_flow.EvaluationStartupFlowTests) ... ok
+test_model_selection_surfaces_model_explanation (test_startup_loading_flow.EvaluationStartupFlowTests) ... ok
+test_result_state_guidance_matches_running_analysis (test_startup_loading_flow.EvaluationStartupFlowTests) ... ok
+test_result_state_uses_structured_title_detail_and_guidance (test_startup_loading_flow.EvaluationStartupFlowTests) ... ok
+test_run_indicator_follows_evaluation_state (test_startup_loading_flow.EvaluationStartupFlowTests) ... ok
+test_start_evaluation_skips_deep_file_validation (test_startup_loading_flow.EvaluationStartupFlowTests) ... ok
+test_progress_shows_percentage_and_current_loading_stage (test_startup_loading_flow.StartupSplashProgressTests) ... ok
+test_splash_centers_identity_and_omits_extra_labels (test_startup_loading_flow.StartupSplashProgressTests) ... ok
+test_data_source_panel_stays_compact_after_steps_move_out (test_step_settings_ui.StepSettingsUiTests) ... ok
+test_imported_numeric_steps_round_trip_through_manual_inputs (test_step_settings_ui.StepSettingsUiTests) ... ok
+test_invalid_or_blank_manual_step_text_maps_to_none (test_step_settings_ui.StepSettingsUiTests) ... ok
+test_nasa_steps_default_to_none_but_remain_user_editable (test_step_settings_ui.StepSettingsUiTests) ... ok
+test_step_parameters_are_manual_inputs_and_default_to_none (test_step_settings_ui.StepSettingsUiTests) ... ok
+test_calce_requires_selection_while_nasa_accepts_none (test_step_settings_ui.StepSettingsValidationTests) ... ok
+test_training_config_defaults_to_no_step_selection (test_step_settings_ui.StepSettingsValidationTests) ... ok
+test_send_demo_fails_cleanly_without_a_server (test_tcp_stream.SendDemoScriptTests) ... ok
+test_buffer_has_a_hard_upper_bound (test_tcp_stream.TcpServerEndToEndTests) ... ok
+test_crossing_the_threshold_produces_rul_without_crashing (test_tcp_stream.TcpServerEndToEndTests)
+A1 的核心回归：旧实现在这里抛 NameError 并让整个进程闪退。 ... ok
+test_default_binding_is_localhost_only (test_tcp_stream.TcpServerEndToEndTests) ... ok
+test_lan_mode_generates_a_token (test_tcp_stream.TcpServerEndToEndTests) ... ok
+test_malformed_messages_do_not_crash_or_kill_the_server (test_tcp_stream.TcpServerEndToEndTests) ... ok
+test_prediction_does_not_block_receiving (test_tcp_stream.TcpServerEndToEndTests)
+A10：一次最坏情况（走满 max_steps）的预测不得阻塞后续消息的处理。 ... ok
+test_reset_clears_the_buffer (test_tcp_stream.TcpServerEndToEndTests) ... ok
+test_rul_is_zero_once_the_model_is_already_below_threshold (test_tcp_stream.TcpServerEndToEndTests)
+容量已低于阈值时，RUL 必须是 0（而不是旧实现的「还有几循环」）。 ... ok
+test_chart_renders_dense_ticks_with_integer_cycles (test_ui_design_contract.ChartTickDensityTests) ... ok
+test_focused_ylim_returns_enough_ticks (test_ui_design_contract.ChartTickDensityTests) ... ok
+test_nice_step_is_human_friendly (test_ui_design_contract.ChartTickDensityTests) ... ok
+test_tick_labels_are_distinguishable_and_cycle_axis_is_integer (test_ui_design_contract.ChartTickDensityTests) ... ok
+test_chinese_font_is_installed_and_renders_glyphs (test_ui_design_contract.ThemeToggleAndFontTests)
+中文必须真的有字形（不是方框）。 ... ok
+test_font_candidates_cover_the_platforms_we_ship_on (test_ui_design_contract.ThemeToggleAndFontTests) ... ok
+test_fresh_install_defaults_to_dark_and_remembers_the_choice (test_ui_design_contract.ThemeToggleAndFontTests)
+默认深色；用户切换后重启要沿用他自己的选择。 ... 2026-11-17 19:54:05,565 - INFO - 主题已切换为：宣纸（浅色）
+ok
+test_main_window_never_touches_the_font_database (test_ui_design_contract.ThemeToggleAndFontTests)
+字体只在进程启动时装一次，窗口不得再碰 QFontDatabase。 ... ok
+test_product_default_theme_is_dark (test_ui_design_contract.ThemeToggleAndFontTests) ... ok
+test_qss_gives_the_tab_bar_an_explicit_background (test_ui_design_contract.ThemeToggleAndFontTests)
+页签栏空白区若不显式着色，浅色主题下会露出一块黑条。 ... ok
+test_theme_toggle_has_a_keyboard_shortcut_and_tooltip (test_ui_design_contract.ThemeToggleAndFontTests) ... ok
+test_theme_toggle_is_a_draggable_floating_round_button (test_ui_design_contract.ThemeToggleAndFontTests) ... ok
+test_toggle_switches_between_the_two_themes (test_ui_design_contract.ThemeToggleAndFontTests) ... 2026-11-17 19:54:31,759 - INFO - 主题已切换为：宣纸（浅色）
+2026-11-17 19:54:38,305 - INFO - 主题已切换为：墨夜（深色）
+ok
+test_button_motion_is_restrained_to_click_feedback (test_ui_design_contract.UiDesignContractTests) ... ok
+test_button_rows_share_non_overlapping_layout_policy (test_ui_design_contract.UiDesignContractTests) ... ok
+test_chart_series_do_not_rely_on_color_alone (test_ui_design_contract.UiDesignContractTests) ... ok
+test_chart_supports_independent_fullscreen_view (test_ui_design_contract.UiDesignContractTests) ... ok
+test_chart_toolbar_keeps_only_high_frequency_actions (test_ui_design_contract.UiDesignContractTests) ... ok
+test_combo_box_uses_drawn_down_arrow_instead_of_border_trick (test_ui_design_contract.UiDesignContractTests) ... ok
+test_empty_and_loading_result_states_are_present (test_ui_design_contract.UiDesignContractTests) ... ok
+test_folder_dialog_entire_client_area_uses_paper_theme (test_ui_design_contract.UiDesignContractTests) ... ok
+test_folder_dialog_labels_are_localized (test_ui_design_contract.UiDesignContractTests) ... ok
+test_folder_dialog_requests_paper_colored_windows_caption (test_ui_design_contract.UiDesignContractTests) ... ok
+test_folder_dialog_toolbar_tooltips_are_localized (test_ui_design_contract.UiDesignContractTests) ... ok
+test_folder_dialog_views_have_readable_ink_theme (test_ui_design_contract.UiDesignContractTests) ... ok
+test_keyboard_focus_is_visible_across_core_controls (test_ui_design_contract.UiDesignContractTests) ... ok
+test_numeric_wheel_selection_uses_readable_ochre_pair (test_ui_design_contract.UiDesignContractTests) ... ok
+test_palette_uses_one_accent_with_accessible_foreground_tokens (test_ui_design_contract.UiDesignContractTests) ... ok
+test_parameters_are_grouped_and_advanced_section_is_collapsible (test_ui_design_contract.UiDesignContractTests) ... ok
+test_primary_actions_have_keyboard_shortcuts (test_ui_design_contract.UiDesignContractTests) ... ok
+test_project_name_is_consistent_in_window_and_readme (test_ui_design_contract.UiDesignContractTests) ... ok
+test_result_table_marks_models_that_lose_to_persistence (test_ui_design_contract.UiDesignContractTests)
+A3：技能分 < 0.05 必须有可见提示。 ... ok
+test_result_table_prioritizes_failure_status_and_is_sortable (test_ui_design_contract.UiDesignContractTests)
+U1：结果区从「N 张卡片竖排」改为可排序表格 + 汇总行。 ... ok
+test_result_table_shows_baselines_summary_and_alpha_warning (test_ui_design_contract.UiDesignContractTests)
+§8 验收：基线并排 + 汇总行 + α<0.05 可见提示。 ... ok
+test_role_specific_disabled_buttons_are_visually_neutral (test_ui_design_contract.UiDesignContractTests) ... ok
+test_running_state_has_progress_and_stop_control (test_ui_design_contract.UiDesignContractTests) ... ok
+test_splitter_lines_stay_narrow_behind_a_nav_rail_sidebar (test_ui_design_contract.UiDesignContractTests) ... ok
+test_theme_can_switch_between_light_and_dark (test_ui_design_contract.UiDesignContractTests)
+C5：浅 / 深主题可切换。 ... ok
+test_dragging_notifies_the_canvas_to_repaint (test_ui_polish_layout.FloatingThemeAndHelpTests)
+拖动按钮必须通知图表重绘，否则会留下竖线状残影。 ... ok
+test_dragging_the_theme_button_keeps_the_grab_point (test_ui_polish_layout.FloatingThemeAndHelpTests)
+拖动时按钮中心必须跟着鼠标走，不能跳位（坐标换算回归）。 ... ok
+test_feature_labels_use_math_typesetting (test_ui_polish_layout.FloatingThemeAndHelpTests)
+输入特征里的变量用斜体 + 下标，而不是 dq_v 这种下划线写法。 ... ok
+test_help_dialog_font_size_defaults_to_12_and_applies_live (test_ui_polish_layout.FloatingThemeAndHelpTests)
+帮助面板字号默认 12，改动立即生效并被记住。 ... ok
+test_line_style_dialog_is_a_singleton (test_ui_polish_layout.FloatingThemeAndHelpTests)
+连续点击线条样式按钮只能出现一个窗口。 ... ok
+test_sidebar_has_a_guide_button_with_full_instructions (test_ui_polish_layout.FloatingThemeAndHelpTests)
+侧边栏底部要有使用指南入口，内容覆盖工作流程与常见问题。 ... ok
+test_completed_results_start_with_a_compact_summary (test_ui_polish_layout.UiPolishLayoutTests) ... ok
+test_minimum_workspace_keeps_chart_column_dominant (test_ui_polish_layout.UiPolishLayoutTests) ... ok
+test_nav_rail_switches_pages_exclusively (test_ui_polish_layout.UiPolishLayoutTests) ... ok
+test_result_rows_wrap_long_confidence_intervals (test_ui_polish_layout.UiPolishLayoutTests)
+置信区间口径说明必须换行显示，不能被截断。 ... ok
+test_result_scroll_does_not_require_horizontal_panning (test_ui_polish_layout.UiPolishLayoutTests) ... ok
+test_result_table_replaces_the_card_stack (test_ui_polish_layout.UiPolishLayoutTests)
+U1：结果区是可排序表格 + 跨电池汇总行，不再是卡片竖排。 ... ok
+test_running_state_surfaces_the_training_log (test_ui_polish_layout.UiPolishLayoutTests) ... ok
+test_terminal_state_returns_attention_to_results (test_ui_polish_layout.UiPolishLayoutTests) ... ok
+test_workspace_groups_panels_behind_a_nav_rail (test_ui_polish_layout.UiPolishLayoutTests) ... ok
+test_calce_adapter_loads_npy_and_reference_re_outlier_work (test_xiuzezhou_alignment.XiuzeZhouAlignmentTests) ... ok
+test_config_roundtrip_preserves_alignment_fields (test_xiuzezhou_alignment.XiuzeZhouAlignmentTests) ... ok
+test_detransformer_architecture_and_composite_decode_output (test_xiuzezhou_alignment.XiuzeZhouAlignmentTests) ... E:\Agent\Antigravity\Battery-SOH-Assessment-System-main\models\rnn_model.py:113: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.num_heads is odd
+  self.cell = nn.TransformerEncoder(encoder_layers, num_layers=self.num_layers)
+ok
+test_zero_leakage_training_supports_transformer_and_both_prediction_modes (test_xiuzezhou_alignment.XiuzeZhouAlignmentTests) ... E:\Agent\Antigravity\Battery-SOH-Assessment-System-main\models\rnn_model.py:113: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.num_heads is odd
+  self.cell = nn.TransformerEncoder(encoder_layers, num_layers=self.num_layers)
+E:\Agent\Antigravity\Battery-SOH-Assessment-System-main\models\rnn_model.py:113: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.num_heads is odd
+  self.cell = nn.TransformerEncoder(encoder_layers, num_layers=self.num_layers)
+E:\Agent\Antigravity\Battery-SOH-Assessment-System-main\models\rnn_model.py:113: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.num_heads is odd
+  self.cell = nn.TransformerEncoder(encoder_layers, num_layers=self.num_layers)
+ok
+
+----------------------------------------------------------------------
+Ran 272 tests in 304.906s
+
+OK
