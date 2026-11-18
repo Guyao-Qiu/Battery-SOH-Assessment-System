@@ -494,7 +494,7 @@ Reproducibility metadata & dataset hashes:
 - **Optional multi-feature input:** `capacity` / `dq_v` / `CCCT` / `CVCT` / `resistance` / `ica_peak_v` / `ica_peak_h` / `ica_peak_area` (capacity-only autoregression by default).
 - **Layered uncertainty:** within-fold seed variation plus a cross-battery bootstrap interval (n = number of batteries).
 - **Sortable result table:** click-to-sort columns, cross-battery summary row, baseline rows, copy / CSV export.
-- **Self-explanatory main chart:** prediction start, prediction curves, recursive extrapolation, 10–90% band, failure threshold, true/predicted EOL markers, SOH% secondary axis, and a y-axis focused on the degradation band.
+- **Self-explanatory main chart:** prediction start, prediction curves, recursive extrapolation, failure threshold, true/predicted EOL markers, SOH% secondary axis, and a y-axis focused on the degradation band.
 - **Readable tick density:** major ticks fill the visible range on human-friendly 1 / 2 / 2.5 / 5 × 10ⁿ steps, with four minor ticks between them; cycle numbers stay integers and capacity keeps only as many decimals as the step needs.
 - **Light and dark themes (dark by default):** paper (light) and ink-night (dark) tokens centralized in `theme_tokens.py`. A button in the top-right corner switches between them (also `Ctrl+T`) and the choice is remembered; charts and the startup splash follow the switch.
 - **CJK font bootstrap:** `ui/fonts.py` registers system Chinese fonts explicitly at startup — PyQt6's offscreen platform plugin does not use the system font engine.

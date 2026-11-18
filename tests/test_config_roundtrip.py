@@ -207,5 +207,92 @@ class CanonicalConfigKeyTests(unittest.TestCase):
             TrainConfig(adapter_type="Bogus")
 
 
+class MainWindowPersistenceTests(unittest.TestCase):
+    def test_load_persisted_config_maps_metric_and_rf_spins(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PyQt6.QtWidgets import QApplication
+        from ui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        try:
+            self.assertEqual(window.metric_combo.currentText(), "全部")
+            self.assertEqual(window.rf_max_depth_spin.value(), 6)
+        finally:
+            window.deleteLater()
+            app.processEvents()
+
+    def test_save_persisted_config_preserves_extra_fields_and_rf_values(self):
+        import json
+        from pathlib import Path
+        from unittest.mock import patch
+
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PyQt6.QtWidgets import QApplication
+        from ui.main_window import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        captured = {}
+        try:
+            window.select_mode("RF")
+            window.rf_max_depth_spin.setValue(8)
+            window.xgb_max_depth_spin.setValue(4)
+            with patch(
+                "ui.main_window.save_config",
+                side_effect=lambda data: captured.update(data),
+            ):
+                saved = window._save_persisted_config()
+
+            self.assertTrue(saved)
+            self.assertEqual(captured["mode"], "RF")
+            self.assertEqual(captured["metric"], "all")
+            self.assertEqual(captured["max_depth"], 8)
+
+            disk_cfg = json.loads(
+                (Path(__file__).resolve().parents[1] / "config.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            for key in (
+                "outlier_mode",
+                "backbone",
+                "num_layers",
+                "nhead",
+                "transformer_k",
+                "alpha",
+                "noise_level",
+                "weight_decay",
+                "prediction_mode",
+            ):
+                self.assertIn(key, captured)
+                self.assertEqual(captured[key], disk_cfg[key])
+        finally:
+            window.deleteLater()
+            app.processEvents()
+
+    def test_close_event_does_not_overwrite_disk_config(self):
+        from pathlib import Path
+
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PyQt6.QtGui import QCloseEvent
+        from PyQt6.QtWidgets import QApplication
+        from ui.main_window import MainWindow
+
+        config_path = Path(__file__).resolve().parents[1] / "config.json"
+        before = config_path.read_text(encoding="utf-8")
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        try:
+            window.select_mode("RF")
+            event = QCloseEvent()
+            window.closeEvent(event)
+            self.assertTrue(event.isAccepted())
+        finally:
+            window.deleteLater()
+            app.processEvents()
+        self.assertEqual(config_path.read_text(encoding="utf-8"), before)
+
+
 if __name__ == "__main__":
     unittest.main()

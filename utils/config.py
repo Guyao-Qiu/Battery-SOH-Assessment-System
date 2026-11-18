@@ -81,6 +81,14 @@ NORM_UI = {
     'zscore': 'Z-score 标准化',
     'minmax': 'Min-Max 归一化',
 }
+METRIC_UI = {
+    'rmse': 'RMSE',
+    'mae': 'MAE',
+    'r2': 'R²',
+    'pearson': 'Pearson',
+    're': 'RE',
+    'all': '全部',
+}
 ADAPTER_UI = {'CALCE': 'CALCE (.xlsx/.csv)', 'NASA': 'NASA (.mat)'}
 THEME_UI = {'light': '宣纸（浅色）', 'dark': '墨夜（深色）'}
 

@@ -40,6 +40,7 @@ from utils.config import (
     DEVICE_UI,
     FEATURE_LABELS,
     FEATURE_OPTIONS,
+    METRIC_UI,
     NORM_UI,
     THEME_UI,
     TrainConfig,
@@ -494,6 +495,7 @@ class MainWindow(QMainWindow):
         self._child_training_windows = []
         self._error_toast = None
         self._theme_mode = saved_theme_mode()
+        self._extra_persisted_config = {}
 
         self.loaded_model = None
         self.loaded_metadata = None
@@ -534,7 +536,9 @@ class MainWindow(QMainWindow):
     def _load_persisted_config(self):
         cfg = load_config()
         if not cfg:
+            self._extra_persisted_config = {}
             return
+        self._extra_persisted_config = dict(cfg)
         widget_map = {
             'rated_capacity': self.rated_capacity_spin,
             'threshold_ratio': self.threshold_ratio_spin,
@@ -560,13 +564,25 @@ class MainWindow(QMainWindow):
                     widget.setValue(cfg[key])
                 except (TypeError, ValueError):
                     pass
+        rf_widget_map = {
+            'n_estimators': self.rf_n_estimators_spin,
+            'max_depth': self.rf_max_depth_spin,
+            'patience': self.rf_patience_spin,
+        }
+        for key, widget in rf_widget_map.items():
+            if key in cfg:
+                try:
+                    widget.setValue(cfg[key])
+                except (TypeError, ValueError):
+                    pass
         if 'mode' in cfg:
             try:
                 self.select_mode(normalize_model_name(cfg['mode']))
             except ValueError:
                 pass
         if 'metric' in cfg and hasattr(self, 'metric_combo'):
-            idx = self.metric_combo.findText(cfg['metric'])
+            metric_key = from_ui(METRIC_UI, cfg['metric'], 'rmse')
+            idx = self.metric_combo.findText(to_ui(METRIC_UI, metric_key))
             if idx >= 0:
                 self.metric_combo.setCurrentIndex(idx)
         # A11：配置里存的是规范键（'cuda'），界面显示的是 'GPU (CUDA)'。
@@ -601,11 +617,20 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_on_adapter_changed'):
             self._on_adapter_changed()
 
+    _EXTRA_CONFIG_KEYS = (
+        'outlier_mode', 'backbone', 'num_layers', 'nhead', 'transformer_k',
+        'alpha', 'noise_level', 'weight_decay', 'prediction_mode',
+        'eol_debounce', 'rnn_lr', 'rnn_dropout',
+    )
+
     def _save_persisted_config(self):
         # A11：配置里只存"规范键"（'cuda' / 'rated' / 'NASA'），
         # 界面文本只在界面层转换。旧版本把 'GPU (CUDA)' 直接写进 JSON，
         # 导致导入自己保存的配置时 GPU 被静默切回 CPU。
-        cfg = {
+        cfg = dict(load_config())
+        cfg.update(getattr(self, '_extra_persisted_config', {}))
+        is_rf = self.current_mode == 'RF'
+        cfg.update({
             'rated_capacity': self.rated_capacity_spin.value(),
             'threshold_ratio': self.threshold_ratio_spin.value(),
             'voltage_upper': self.voltage_upper_spin.value(),
@@ -617,26 +642,30 @@ class MainWindow(QMainWindow):
             'n_seeds': self.n_seeds_spin.value(),
             'mode': self.current_mode,
             'metric': from_ui(
-                {'rmse': 'RMSE', 'mae': 'MAE', 'r2': 'R²',
-                 'pearson': 'Pearson', 're': 'RE', 'all': '全部'},
-                self.metric_combo.currentText(), 'rmse'),
+                METRIC_UI, self.metric_combo.currentText(), 'rmse'),
             'device': normalize_device(self.device_combo.currentText()),
             'norm_method': from_ui(
                 NORM_UI, self.norm_combo.currentText(), 'rated'),
             'feature_columns': self._selected_features(),
-            'n_estimators': self.xgb_n_estimators_spin.value(),
+            'n_estimators': (
+                self.rf_n_estimators_spin.value() if is_rf
+                else self.xgb_n_estimators_spin.value()),
             'learning_rate': self.xgb_learning_rate_spin.value(),
-            'max_depth': self.xgb_max_depth_spin.value(),
+            'max_depth': (
+                self.rf_max_depth_spin.value() if is_rf
+                else self.xgb_max_depth_spin.value()),
             'subsample': self.xgb_subsample_spin.value(),
             'colsample_bytree': self.xgb_colsample_bytree_spin.value(),
             'min_samples_leaf': self.rf_min_samples_leaf_spin.value(),
             'max_features': self.rf_max_features_spin.value(),
-            'patience': self.xgb_patience_spin.value(),
+            'patience': (
+                self.rf_patience_spin.value() if is_rf
+                else self.xgb_patience_spin.value()),
             'adapter_type': self.adapter_combo.currentData(),
             'cc_step': _step_input_value(self.cc_step_input),
             'cv_step': _step_input_value(self.cv_step_input),
             'discharge_step': _step_input_value(self.discharge_step_input),
-        }
+        })
         try:
             save_config(cfg)
         except OSError as error:
@@ -667,7 +696,6 @@ class MainWindow(QMainWindow):
                 '训练线程尚未到达安全检查点，窗口暂不关闭。请稍候后再次关闭，避免损坏模型或报告。')
             event.ignore()
             return
-        self._save_persisted_config()
         save_geometry(self)          # U4：记住窗口几何
         super().closeEvent(event)
 
@@ -1716,6 +1744,15 @@ class MainWindow(QMainWindow):
         _set_step_input(self.cc_step_input, config.cc_step)
         _set_step_input(self.cv_step_input, config.cv_step)
         _set_step_input(self.discharge_step_input, config.discharge_step)
+        if hasattr(self, 'feature_checks'):
+            selected = set(
+                getattr(config, 'feature_columns', ('capacity',)) or ('capacity',))
+            for name, checkbox in self.feature_checks.items():
+                checkbox.setChecked(name in selected)
+            self.feature_checks['capacity'].setChecked(True)
+        for key in self._EXTRA_CONFIG_KEYS:
+            if hasattr(config, key):
+                self._extra_persisted_config[key] = getattr(config, key)
         self.select_mode(config.mode)
 
     def import_list_key_press(self, event):
@@ -1765,6 +1802,11 @@ class MainWindow(QMainWindow):
         if device_text == 'GPU (CUDA)' and torch.cuda.is_available():
             target_device = 'cuda'
 
+        extra = {
+            k: self._extra_persisted_config[k]
+            for k in self._EXTRA_CONFIG_KEYS
+            if k in getattr(self, '_extra_persisted_config', {})
+        }
         config = TrainConfig(
             rated_capacity=self.rated_capacity_spin.value(),
             threshold_ratio=self.threshold_ratio_spin.value(),
@@ -1777,10 +1819,12 @@ class MainWindow(QMainWindow):
             metric=metric_map[self.metric_combo.currentText()],
             device=target_device,
             norm_method=norm_map[self.norm_combo.currentText()],
+            feature_columns=self._selected_features(),
             adapter_type=self.adapter_combo.currentData(),
             cc_step=_step_input_value(self.cc_step_input),
             cv_step=_step_input_value(self.cv_step_input),
             discharge_step=_step_input_value(self.discharge_step_input),
+            **extra,
         )
 
         config.seed = self.seed_spin.value()

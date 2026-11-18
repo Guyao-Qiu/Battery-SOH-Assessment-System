@@ -38,75 +38,87 @@ def _pick_platform():
 
 
 def _demo_run():
-    """构造一份可复现的演示结果（合成电池 + 完整 details）。"""
+    """构造 CS2_35 真实量纲演示结果（优先读取内置 CS2_35，缺失时用同量纲曲线兜底）。"""
     import numpy as np
     import pandas as pd
 
-    cycles = 140
-    k = np.arange(cycles)
-    progress = k / (cycles - 1)
-    shape = 0.55 * progress + 0.45 * (
-        np.exp(3.2 * progress) - 1) / (np.exp(3.2) - 1)
+    rated, ratio = 1.1, 0.7
+    cs35_dir = os.path.join(ROOT, 'dataset', 'CS2_35')
+    data = None
+    if os.path.isdir(cs35_dir):
+        try:
+            from core.dataload import load_battery_from_paths
+            loaded_dict, _ = load_battery_from_paths(
+                [cs35_dir], adapter_type='CALCE', outlier_mode='chunked')
+            if 'CS2_35' in loaded_dict and len(loaded_dict['CS2_35']) > 100:
+                data = {'CS2_35': loaded_dict['CS2_35']}
+        except Exception:
+            data = None
 
-    def frame(seed, rated, end):
-        rng = np.random.default_rng(seed)
-        capacity = rated - (rated - end) * shape + rng.normal(0, 0.008, cycles)
-        return pd.DataFrame({
-            'cycle': np.arange(1, cycles + 1),
-            'capacity': capacity.astype(np.float32),
-            'dq_v': (capacity * 0.55).astype(np.float32),
-            'CCCT': (3000 - 1200 * shape).astype(np.float32),
-            'CVCT': (1500 - 600 * shape).astype(np.float32),
-            'resistance': (0.02 + 0.03 * shape).astype(np.float32),
-        })
+    if data is None:
+        cycles = 896
+        k = np.arange(cycles)
+        progress = k / (cycles - 1)
+        shape = 0.55 * progress + 0.45 * (
+            np.exp(3.2 * progress) - 1) / (np.exp(3.2) - 1)
+        rng = np.random.default_rng(1)
+        capacity = rated - (rated - 0.30) * shape + rng.normal(0, 0.005, cycles)
+        data = {
+            'CS2_35': pd.DataFrame({
+                'cycle': np.arange(1, cycles + 1),
+                'capacity': capacity.astype(np.float32),
+                'dq_v': (capacity * 0.55).astype(np.float32),
+                'CCCT': (3000 - 1200 * shape).astype(np.float32),
+                'CVCT': (1500 - 600 * shape).astype(np.float32),
+                'resistance': (0.04 + 0.03 * shape).astype(np.float32),
+            }),
+        }
 
-    rated, end = 2.0, 1.29
-    data = {'CS2_35': frame(1, rated, end)}
     nominal = data['CS2_35']['capacity'].to_numpy(dtype=np.float64)
-    start = 70
-    forecast = (nominal[start:] - 0.02).tolist()
+    cycles = int(len(nominal))
+    start = int(round(cycles * 0.6))
+    forecast_arr = np.clip(nominal[start:] - 0.012, 0.15, rated * 1.1)
+    forecast = forecast_arr.tolist()
 
     detail = {
         'battery': 'CS2_35', 'cycles': cycles, 'model': 'RF',
-        'rmse': 0.0312, 'mae': 0.0244, 'r2': 0.9812, 'pearson': 0.9906,
+        'rmse': 0.0136, 'mae': 0.0071, 'r2': 0.9960, 'pearson': 0.9980,
         're': 0.052, 're_status': 'observed', 'n_seeds': 5,
-        'persistence_blend': 0.72, 'rmse_skill_vs_persistence': 0.842,
-        'primary_start_frac': 0.5, 'forecast_start': start,
+        'persistence_blend': 0.72, 'rmse_skill_vs_persistence': 0.139,
+        'primary_start_frac': 0.6, 'forecast_start': start,
         'forecast': forecast,
-        'forecast_band': (list(np.asarray(forecast) - 0.04),
-                          list(np.asarray(forecast) + 0.04)),
-        'threshold': rated * 0.7,
+        'threshold': rated * ratio,
         'rolling_rows': [
-            {'start_frac': 0.4, 'start': 56, 'battery': 'CS2_35',
-             'rmse': 0.0402, 'mae': 0.0310, 'true_rul': 52, 'pred_rul': 55,
-             'rul_err': 3, 'rul_rel_err': 0.058, 'within_20pct': True,
-             'status': 'ok'},
-            {'start_frac': 0.5, 'start': 70, 'battery': 'CS2_35',
-             'rmse': 0.0312, 'mae': 0.0244, 'true_rul': 38, 'pred_rul': 40,
-             'rul_err': 2, 'rul_rel_err': 0.053, 'within_20pct': True,
+            {'start_frac': 0.4, 'start': int(cycles * 0.4), 'battery': 'CS2_35',
+             'rmse': 0.3052, 'mae': 0.2204, 'true_rul': 282, 'pred_rul': None,
+             'rul_err': None, 'rul_rel_err': None, 'within_20pct': False,
+             'status': 'pred_censored'},
+            {'start_frac': 0.6, 'start': start, 'battery': 'CS2_35',
+             'rmse': 0.2801, 'mae': 0.2159, 'true_rul': 103, 'pred_rul': 110,
+             'rul_err': 7, 'rul_rel_err': 0.068, 'within_20pct': True,
              'status': 'ok'},
         ],
         'rolling': {
             'per_start': {
-                0.4: {'n': 2, 'rmse': 0.0402, 'mae': 0.0310, 'detected': 2,
-                      'needs_detection': 2, 'mean_abs_rul_err': 3.0,
-                      'skill': 0.81},
-                0.5: {'n': 2, 'rmse': 0.0312, 'mae': 0.0244, 'detected': 2,
-                      'needs_detection': 2, 'mean_abs_rul_err': 2.0,
-                      'skill': 0.84},
+                0.4: {'n': 1, 'rmse': 0.3052, 'mae': 0.2204, 'detected': 0,
+                      'needs_detection': 1, 'mean_abs_rul_err': None,
+                      'skill': 0.045},
+                0.6: {'n': 1, 'rmse': 0.2801, 'mae': 0.2159, 'detected': 1,
+                      'needs_detection': 1, 'mean_abs_rul_err': 7.0,
+                      'skill': 0.139},
             },
-            'overall': {'n': 2, 'rmse': 0.0357, 'mae': 0.0277, 'detected': 2,
-                        'needs_detection': 2, 'mean_abs_rul_err': 2.5,
-                        'skill': 0.83},
+            'overall': {'n': 2, 'rmse': 0.2927, 'mae': 0.2182, 'detected': 1,
+                        'needs_detection': 2, 'mean_abs_rul_err': 7.0,
+                        'skill': 0.139},
         },
-        'baselines': {'平推基线': {'rmse': 0.1966},
-                      '线性外推': {'rmse': 0.1521},
-                      '双指数': {'rmse': 0.1804}},
-        'ci': {'rmse': {'mean': 0.0312, 'std': 0.0021,
-                        'lower': 0.0285, 'upper': 0.0339}},
+        'baselines': {'平推基线': {'rmse': 0.3254},
+                      '线性外推': {'rmse': 0.1978},
+                      '双指数': {'rmse': 0.3011}},
+        'ci': {'rmse': {'mean': 0.0136, 'std': 0.0002,
+                        'lower': 0.0133, 'upper': 0.0139}},
     }
     prediction = nominal[:start].tolist() + forecast
-    return data, {battery: prediction for battery in data}, rated, 0.7, detail
+    return data, {battery: prediction for battery in data}, rated, ratio, detail
 
 
 def render(out_dir, width=1600, height=950):
@@ -132,6 +144,7 @@ def render(out_dir, width=1600, height=950):
         try:
             window.resize(width, height)
             window.apply_theme(mode)
+            window.select_mode(detail['model'])
             window.metric_combo.setCurrentText('RMSE')
             window.update_result_table([detail], elapsed=12.3)
             window.canvas.plot_results(

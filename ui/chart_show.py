@@ -2039,11 +2039,11 @@ class MplCanvas(FigureCanvas):
         """主结果图（C2 + U2）：事实用墨色、模型输出用强调色、失效用朱砂。
 
         ``details`` 可选，形如 ``{电池名: detail}`` 或 ``[detail, ...]``；认识的键：
-        ``forecast`` / ``forecast_start`` / ``forecast_band`` / ``rolling_rows`` /
+        ``forecast`` / ``forecast_start`` / ``rolling_rows`` /
         ``primary_start_frac`` / ``persistence_blend``。缺任何一个都能正常出图。
         """
         self._last_plot_kind = 'results'
-        # 把 details 一并存进 payload：全屏重绘时 U2 的预测起点 / 区间 / EOL
+        # 把 details 一并存进 payload：全屏重绘时 U2 的预测起点 / EOL
         # 标注不会丢（``replay_last_plot`` 用 ``*payload[1:]`` 原样转发）。
         self._last_plot_payload = (
             battery_names, battery_data, prediction_by_battery,
@@ -2095,7 +2095,6 @@ class MplCanvas(FigureCanvas):
             measured = np.asarray(_series_values(entry), dtype=np.float64)
             cycles = _series_cycles(entry, len(measured))
             forecast = _as_float_list(detail.get('forecast'))
-            band = detail.get('forecast_band')
 
             # ── 事实：实测容量 = 中性墨色细线 + 小圆点 ──
             # 单电池时严格用墨色；多电池叠加时用主题分类色区分不同电池，
@@ -2122,18 +2121,6 @@ class MplCanvas(FigureCanvas):
                 ax.plot(forecast_x, forecast, color=tokens['chart_forecast'],
                         linewidth=FORECAST_LINE_WIDTH, linestyle='--',
                         label='预测值', zorder=4)
-                if band:
-                    try:
-                        band_lo, band_hi = band
-                    except (TypeError, ValueError):
-                        band_lo = band_hi = None
-                    if (band_lo is not None and len(band_lo) == len(forecast)
-                            and len(band_hi) == len(forecast)):
-                        ax.fill_between(
-                            forecast_x, band_lo, band_hi,
-                            color=tokens['chart_forecast'],
-                            alpha=tokens['chart_band_alpha'], lw=0,
-                            label='预测区间(10–90%)', zorder=1)
                 # 预测起点：竖向点线 + 小标签
                 start_x = self._index_to_cycle(cycles, base)
                 if start_x is not None:
