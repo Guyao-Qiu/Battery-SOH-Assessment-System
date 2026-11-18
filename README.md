@@ -243,7 +243,7 @@ python -m unittest discover -s tests                                            
 2. **递归外推在哪个起点变得可用**：`DeTransformer` 从 40% 起点即具备正向外推能力（RMSE `0.1234`、技能分 `+0.655`），进入 **60%–70% 寿命中后段**后进一步收敛到 RMSE `0.0595`–`0.0662`（技能分 `+0.800`–`+0.816`），全轨迹递归 RE 宏平均 `17.79%`；`XGBoost` 在 **60% 起点之后**预测较稳（技能分 `+0.605`–`+0.675`），但早期起点（40% 之前）树模型仍容易受训练域平台限制而发生预测删失。
 3. **哪些结论不能下**：**一步预测的高 R² 不能推出 RUL 可靠**——平推基线本身的一步 R² 就高达 `0.9969`（RMSE `0.0132`），`RF`（一步 R² `0.9965`）与 `RNN`（一步 R² `0.9916`）在一步上看似准确，递归外推却大幅失真；此外，本基准仅包含 4 节同型号 CALCE 电池（`CS2_36` 第 517 循环的早期单点波动还会拉高去抖关闭时的 EOL 误差），因此不能由本表直接外推至跨体系电池或实车 BMS 安全认证场景。
 
-![四电池真实推理对比图](prediction_chart.png)
+![四电池真实推理对比图](assets/prediction_chart.png)
 
 <details>
 <summary>历史基线（commit <code>5681172</code>，仅供参考追溯）</summary>
@@ -629,6 +629,15 @@ pip install -r requirements-cuda.lock
 
 ```bash
 python battery_soh_app.py
+```
+
+### 构建单文件版本（按需生成，不入库）
+
+仓库不再直接追踪单文件打包产物 `battery_soh_all_in_one.py`，需要离线单文件分发时可随时由源码构建并自检：
+
+```bash
+python scripts/build_all_in_one.py
+python battery_soh_all_in_one.py --check
 ```
 
 ### 基本流程

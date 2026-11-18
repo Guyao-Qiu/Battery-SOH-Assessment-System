@@ -22,10 +22,14 @@ env/
 # Outputs (runtime generated)
 outputs/
 dataset/NASA/
+dataset/NASA_PCoE/
+battery_soh_all_in_one.py
 *.log
 .coverage
 .coverage.*
 htmlcov/
+.pytest_cache/
+.ruff_cache/
 
 # Model files (runtime generated)
 *.pt

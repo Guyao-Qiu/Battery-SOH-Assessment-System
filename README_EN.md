@@ -233,7 +233,7 @@ Reproducibility metadata & dataset hashes:
 2. **Where recursive rollout becomes usable:** `DeTransformer` already provides strong recursive skill at the 40% origin (`0.1234` RMSE, `+0.655` skill) and improves to `0.0595`–`0.0662` RMSE (`+0.800`–`+0.816` skill) at the **60%–70% origins**, reaching a `17.79%` macro recursive RE. `XGBoost` is competitive from the **60% origin onward** (`+0.605`–`+0.675` skill), though early-origin tree rollouts often saturate and become `prediction_censored`.
 3. **What cannot be claimed:** **Strong one-step R² does not imply reliable RUL extrapolation** — persistence itself achieves `0.9969` one-step R² (`0.0132` RMSE), and `RF` (`0.9965` 1-step R²) / `RNN` (`0.9916` 1-step R²) break down under multi-step recursion. Furthermore, these numbers cover only four same-chemistry CALCE cells (and `CS2_36`'s noisy early dip at cycle 517 inflates non-debounced EOL RE), so they cannot justify cross-chemistry generalization or BMS safety deployment.
 
-![Four-Cell Prediction Chart](prediction_chart.png)
+![Four-Cell Prediction Chart](assets/prediction_chart.png)
 
 <details>
 <summary>Historical Baseline (commit <code>5681172</code>, for traceability)</summary>
@@ -532,6 +532,15 @@ The CUDA lock was validated on an RTX 4050 Laptop GPU with driver 596.49 and `to
 
 ```bash
 python battery_soh_app.py
+```
+
+### Build Single-File Distribution (Generated on Demand)
+
+The bundled `battery_soh_all_in_one.py` artifact is excluded from version control and generated on demand from source:
+
+```bash
+python scripts/build_all_in_one.py
+python battery_soh_all_in_one.py --check
 ```
 
 Basic workflow:
